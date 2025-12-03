@@ -163,12 +163,20 @@ def documents():
     # 获取组织和分类用于筛选
     organizations = Organization.query.all()
     categories = Category.query.all()
+    categories_data = [
+        {'id': cat.id, 'name': cat.name, 'org_id': cat.org_id}
+        for cat in categories
+    ]
+    categories_for_filter = categories
+    if org_id:
+        categories_for_filter = [cat for cat in categories if cat.org_id == org_id]
     
     return render_template('documents.html', 
                           docs=docs,
                           pagination=pagination,
                           organizations=organizations,
-                          categories=categories,
+                          categories=categories_for_filter,
+                          categories_data=categories_data,
                           org_id=org_id,
                           category_id=category_id,
                           start_date=start_date,

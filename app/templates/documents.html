@@ -64,6 +64,47 @@
         </form>
     </div>
 
+    <script id="categories-data" type="application/json">
+        {{ categories_data | tojson }}
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const orgSelect = document.getElementById('org_id');
+            const categorySelect = document.getElementById('category_id');
+            const categoriesDataEl = document.getElementById('categories-data');
+            if (!orgSelect || !categorySelect || !categoriesDataEl) return;
+
+            const categoriesData = JSON.parse(categoriesDataEl.textContent || '[]');
+
+            function renderCategories(orgId, selectedValue) {
+                const options = [{ value: '', label: '全部' }];
+                const filtered = categoriesData.filter(cat => !orgId || String(cat.org_id) === String(orgId));
+                filtered.forEach(cat => options.push({ value: String(cat.id), label: cat.name }));
+
+                categorySelect.innerHTML = '';
+                options.forEach(opt => {
+                    const optionEl = document.createElement('option');
+                    optionEl.value = opt.value;
+                    optionEl.textContent = opt.label;
+                    categorySelect.appendChild(optionEl);
+                });
+
+                if (selectedValue) {
+                    const matched = options.find(opt => opt.value === String(selectedValue));
+                    if (matched) {
+                        categorySelect.value = String(selectedValue);
+                    }
+                }
+            }
+
+            renderCategories(orgSelect.value, "{{ category_id or '' }}");
+
+            orgSelect.addEventListener('change', function() {
+                renderCategories(this.value, categorySelect.value);
+            });
+        });
+    </script>
+
     <!-- 文档列表 -->
     {% if docs %}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
