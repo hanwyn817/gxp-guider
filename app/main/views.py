@@ -103,6 +103,9 @@ def documents():
     end_date = request.args.get('end_date')
     keyword = request.args.get('keyword', '')
     page = request.args.get('page', 1, type=int)
+    view_mode = request.args.get('view', 'card')
+    if view_mode not in ('card', 'table'):
+        view_mode = 'card'
     file_filter = request.args.get('file', '').strip()  # '', 'any', 'original', 'translation'
     # 构建查询
     query = Document.query
@@ -182,7 +185,8 @@ def documents():
                           start_date=start_date,
                           end_date=end_date,
                           keyword=keyword,
-                          file=file_filter)
+                          file=file_filter,
+                          view=view_mode)
 
 @main.route('/documents/<int:id>')
 def document_detail(id):
