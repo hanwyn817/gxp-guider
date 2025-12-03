@@ -1,0 +1,43 @@
+<div class="form-group mb-4">
+    <label class="control-label d-block mb-2">封面缩略图上传</label>
+    <div class="d-flex align-items-center mb-2">
+        <button type="button" id="cover-image-upload-btn" class="btn btn-secondary btn-sm mr-2">
+            <i class="fa fa-image mr-1"></i>选择图片并上传
+        </button>
+        <input type="file" id="cover_image_file" accept="image/*" style="display:none">
+        <button type="button" id="cover-cancel" class="btn btn-link btn-sm ml-1" style="display:none">取消上传</button>
+    </div>
+    <small class="form-text text-muted">上传后自动填充“封面缩略图链接”。支持拖拽至下方任意上传区域。</small>
+    <img id="cover-image-preview" style="display:none;max-height:140px;margin-top:10px" alt="封面预览" />
+    <div class="progress" id="cover-progress">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" id="cover-progress-bar" role="progressbar" style="width:0%">0%</div>
+    </div>
+    <div id="admin-toast"><div class="toast-box" id="admin-toast-box"></div></div>
+    <hr class="my-3" />
+</div>
+
+<div class="form-group mb-4">
+    <label class="control-label d-block mb-2">原版文档上传</label>
+    <div class="upload-area" id="original-file-upload-area">
+        <p><i class="fa fa-file-pdf mr-1"></i>将原版文档拖拽到这里或点击选择文件</p>
+        <div class="file-info" id="original-file-info"></div>
+    </div>
+    <input type="file" class="upload-input" id="original_file_upload" name="original_file_upload">
+    <div class="progress" id="original-progress">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" id="original-progress-bar" role="progressbar" style="width:0%">0%</div>
+    </div>
+    <button type="button" id="original-cancel" class="btn btn-link btn-sm" style="display:none">取消上传</button>
+</div>
+
+<div class="form-group mb-2">
+    <label class="control-label d-block mb-2">中文版文档上传</label>
+    <div class="upload-area" id="translation-file-upload-area">
+        <p><i class="fa fa-file-word mr-1"></i>将中文版文档拖拽到这里或点击选择文件</p>
+        <div class="file-info" id="translation-file-info"></div>
+    </div>
+    <input type="file" class="upload-input" id="translation_file_upload" name="translation_file_upload">
+    <div class="progress" id="translation-progress">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" id="translation-progress-bar" role="progressbar" style="width:0%">0%</div>
+    </div>
+    <button type="button" id="translation-cancel" class="btn btn-link btn-sm" style="display:none">取消上传</button>
+</div>

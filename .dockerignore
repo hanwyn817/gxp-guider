@@ -1,0 +1,81 @@
+# .dockerignore
+.git
+.gitignore
+README.md
+Dockerfile
+.dockerignore
+docker-compose.yml
+nginx.conf
+ssl/
+
+# Logs
+logs/
+*.log
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.egg
+.mypy_cache/
+.pytest_cache/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Test coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+
+# Local development files
+.env
+.env.local
+.env.*.local
+
+# Data files (these should be mounted as volumes)
+*.sqlite
+*.db
+
+# Temporary files
+tmp/
+temp/
+
+# Crawlers temporary files
+crawler/*.html

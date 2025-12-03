@@ -1,0 +1,33 @@
+# 精简版 Compose（用于 1Panel 部署）
+# - 仅运行 app 容器
+# - 不对外暴露端口，由 1Panel 反向代理/证书托管
+# - 使用命名卷持久化数据与日志
+
+services:
+  app:
+    # build: .
+    # 如果你已推送镜像到仓库，可改用：
+    image: hanwyn/gmp-seeker:latest
+    environment:
+      FLASK_ENV: production
+      WORKERS: 1
+      # 生产建议改为 PostgreSQL；此处默认 SQLite 存放在 /app/data
+      DATABASE_URL: sqlite:////app/data/data.sqlite
+      GMP_SEEKER_ADMIN: admin@example.com
+    # 引入 1Panel 在同目录生成的环境变量文件（包含 R2_*、SECRET_KEY 等）
+    env_file:
+      - 1panel.env
+    # 不发布到宿主，仅在容器网络内开放 5000，供 1Panel 反代到容器端口
+    expose:
+      - "5000"
+    # 若 1Panel 无“容器/服务”反代选项，则发布到宿主本机端口再反代
+    ports:
+      - "127.0.0.1:7155:5000"
+    volumes:
+      - app-logs:/app/logs
+      - app-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  app-logs: {}
+  app-data: {}

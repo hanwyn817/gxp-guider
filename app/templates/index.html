@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{% block title %}GMP药指汇 - 首页{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <div class="text-center py-12">
+        <h1 class="text-4xl font-bold text-gray-800 mb-4">欢迎来到GMP药指汇</h1>
+        <p class="text-xl text-gray-600 max-w-3xl mx-auto mb-6">专业的GMP指南管理平台，提供ISPE、PDA、WHO等组织的文档浏览、检索与免费下载服务。</p>
+        <!-- 首页搜索条 -->
+        <form method="GET" action="{{ url_for('main.documents') }}" role="search" aria-label="站内文档搜索" class="max-w-3xl mx-auto">
+            <div class="relative flex items-center rounded-full overflow-hidden shadow focus-within:ring-2 focus-within:ring-blue-300 bg-white">
+                <div class="pl-4 text-gray-400">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                </div>
+                <input type="text" name="keyword" aria-label="搜索关键词" autocomplete="off" placeholder="搜索中英文标题、组织、关键词..." class="flex-1 px-3 py-3 text-gray-800 focus:outline-none placeholder-gray-400" />
+                <button type="submit" class="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500">搜索</button>
+            </div>
+        </form>
+        <!-- 快捷入口 -->
+        <div class="mt-4 flex flex-wrap justify-center gap-2 text-sm" aria-label="快捷筛选入口">
+            <a href="{{ url_for('main.documents', file='translation') }}" class="chip chip--green" aria-label="只看中文文档">只看中文</a>
+            <a href="{{ url_for('main.documents', file='original') }}" class="chip chip--amber" aria-label="只看英文文档">只看英文</a>
+            <a href="{{ url_for('main.documents', file='any') }}" class="chip chip--blue" aria-label="可下载文档">可下载</a>
+            <span class="text-gray-300 mx-2" aria-hidden="true">|</span>
+            <a href="{{ url_for('main.documents', keyword='数据完整性') }}" class="chip" aria-label="筛选：数据完整性">数据完整性</a>
+            <a href="{{ url_for('main.documents', keyword='无菌') }}" class="chip" aria-label="筛选：无菌">无菌</a>
+            <a href="{{ url_for('main.documents', keyword='洁净室') }}" class="chip" aria-label="筛选：洁净室">洁净室</a>
+            <a href="{{ url_for('main.documents', keyword='FDA') }}" class="chip" aria-label="筛选：FDA">FDA</a>
+            <a href="{{ url_for('main.documents', keyword='ICH') }}" class="chip" aria-label="筛选：ICH">ICH</a>
+            <a href="{{ url_for('main.documents', keyword='PDA') }}" class="chip" aria-label="筛选：PDA">PDA</a>
+        </div>
+    </div>
+
+    <!-- 最近更新Top 4 -->
+    <div class="mb-12">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold text-gray-800">最新文档</h2>
+            <a href="{{ url_for('main.documents') }}" class="text-blue-600 hover:text-blue-800 flex items-center">
+                查看全部 {{ total_docs_count }} <i class="fas fa-arrow-right ml-1"></i>
+            </a>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {% for doc in recent_updated %}
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition duration-300 flex flex-col h-full">
+                <div class="card-img-container">
+                    {% if doc.cover_url %}
+                    <div class="thumbnail-wrapper relative overflow-hidden media-frame ratio-3-4"> <!-- 使用 relative 定位 -->
+                        <div class="thumbnail-blur-bg absolute inset-0 z-0"></div> <!-- 模糊背景层 -->
+                        <div class="skeleton" aria-hidden="true"></div>
+                        <img src="{{ doc.cover_url }}" loading="lazy" decoding="async" fetchpriority="low" class="card-img relative z-10 w-full h-full object-contain" alt="{{ doc.title }}"> <!-- 使用 relative 定位并置于上层 -->
+                    </div>
+                    {% else %}
+                    <div class="thumbnail-placeholder bg-gray-100 w-full media-frame ratio-3-4 flex items-center justify-center">
+                        <div class="title-text text-gray-700 text-center px-2">{{ doc.title }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="p-4 flex-grow flex flex-col">
+                    <h3 class="font-bold text-lg mb-2 line-clamp-2">{{ doc.chinese_title or doc.title }}</h3>
+                    <div class="text-sm text-gray-500 mb-3 flex-grow">
+                        <div><i class="fas fa-building"></i> {{ doc.organization.name if doc.organization else '未知组织' }}</div>
+                        <div><i class="fas fa-calendar"></i> {{ doc.publish_date or '未知日期' }}</div>
+                    </div>
+                    <div class="mb-3 flex flex-wrap gap-2">
+                        {% if doc.original_file_url %}
+                            <span class="chip chip--amber" aria-label="英文文档可下载">英文</span>
+                        {% endif %}
+                        {% if doc.translation_file_url %}
+                            <span class="chip chip--green" aria-label="中文文档可下载">中文</span>
+                        {% endif %}
+                    </div>
+                    <a href="{{ url_for('main.document_detail', id=doc.id) }}" class="mt-auto bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-center transition duration-300">
+                        查看详情
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- 最新中文 Top 4 -->
+    {% if latest_cn %}
+    <div class="mb-12">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold text-gray-800">最新中文</h2>
+            <a href="{{ url_for('main.documents', file='translation') }}" class="text-blue-600 hover:text-blue-800 flex items-center">
+                查看全部 <i class="fas fa-arrow-right ml-1"></i>
+            </a>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {% for doc in latest_cn %}
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition duration-300 flex flex-col h-full">
+                <div class="card-img-container">
+                    {% if doc.cover_url %}
+                    <div class="thumbnail-wrapper relative overflow-hidden media-frame ratio-3-4">
+                        <div class="thumbnail-blur-bg absolute inset-0 z-0"></div>
+                        <div class="skeleton" aria-hidden="true"></div>
+                        <img src="{{ doc.cover_url }}" loading="lazy" decoding="async" fetchpriority="low" class="card-img relative z-10 w-full h-full object-contain" alt="{{ doc.title }}">
+                    </div>
+                    {% else %}
+                    <div class="thumbnail-placeholder bg-gray-100 w-full media-frame ratio-3-4 flex items-center justify-center">
+                        <div class="title-text text-gray-700 text-center px-2">{{ doc.title }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="p-4 flex-grow flex flex-col">
+                    <h3 class="font-bold text-lg mb-2 line-clamp-2">{{ doc.chinese_title or doc.title }}</h3>
+                    <div class="text-sm text-gray-500 mb-3 flex-grow">
+                        <div><i class="fas fa-building"></i> {{ doc.organization.name if doc.organization else '未知组织' }}</div>
+                        <div><i class="fas fa-calendar"></i> {{ doc.publish_date or '未知日期' }}</div>
+                    </div>
+                    <div class="mb-3 flex flex-wrap gap-2">
+                        {% if doc.original_file_url %}
+                            <span class="chip chip--amber" aria-label="英文文档可下载">英文</span>
+                        {% endif %}
+                        {% if doc.translation_file_url %}
+                            <span class="chip chip--green" aria-label="中文文档可下载">中文</span>
+                        {% endif %}
+                        {% if not doc.original_file_url and not doc.translation_file_url %}
+                            <span class="chip chip--free" aria-label="待补充">待上传</span>
+                        {% endif %}
+                    </div>
+                    <a href="{{ url_for('main.document_detail', id=doc.id) }}" class="mt-auto bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-center transition duration-300">查看详情</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    
+
+    <!-- 按组织分组，各组织最近更新Top 4 -->
+    <!-- 组织切换标签 -->
+    {% if org_docs %}
+    <div class="mb-6">
+        <div class="relative overflow-x-auto no-scrollbar -mx-4 snap-x" id="orgTabScroll">
+            <!-- 渐隐指示遮罩 -->
+            <div class="fade-left pointer-events-none" aria-hidden="true"></div>
+            <div class="fade-right pointer-events-none" aria-hidden="true"></div>
+            <div class="flex gap-2 px-4 min-w-full flex-nowrap items-center py-1 tablist-surface rounded-xl bg-white/70 backdrop-blur supports-backdrop-blur:backdrop-blur-sm shadow-sm"
+                 role="tablist" aria-label="组织列表" id="orgTabList" style="position: relative;">
+                {% set first_org = (org_docs|list)[0][0] %}
+                {% for org_name, _ in org_docs.items() %}
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    tabindex="-1"
+                    id="tab-{{ loop.index }}"
+                    aria-controls="panel-{{ loop.index }}"
+                    data-index="{{ loop.index }}"
+                    class="org-tab px-4 py-2 rounded-full text-sm font-medium border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50 snap-start shrink-0 inline-flex items-center gap-2"
+                    data-org="{{ org_name }}"
+                >
+                    <span class="org-dot" aria-hidden="true"></span>
+                    <span class="org-label truncate max-w-[8rem] sm:max-w-[12rem]">{{ org_name }}</span>
+                    <span class="org-count-badge" aria-label="文档数量">{{ org_counts.get(org_name, 0) }}</span>
+                </button>
+                {% endfor %}
+                <!-- 活动下划线指示器 -->
+                <div class="org-tab-indicator" aria-hidden="true"></div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% for org_name, docs in org_docs.items() %}
+    <div class="mb-12 org-panel" data-org="{{ org_name }}" role="tabpanel" aria-labelledby="tab-{{ loop.index }}" id="panel-{{ loop.index }}" style="display: none;">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold text-gray-800">{{ org_name }} 最新文档</h2>
+            <a href="{{ url_for('main.documents', org=org_name) }}" class="text-blue-600 hover:text-blue-800 flex items-center">
+                查看全部 {{ org_counts.get(org_name, 0) }} <i class="fas fa-arrow-right ml-1"></i>
+            </a>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {% for doc in docs %}
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition duration-300 flex flex-col h-full">
+                <div class="card-img-container">
+                    {% if doc.cover_url %}
+                    <div class="thumbnail-wrapper relative overflow-hidden media-frame ratio-3-4"> <!-- 使用 relative 定位 -->
+                        <div class="thumbnail-blur-bg absolute inset-0 z-0"></div> <!-- 模糊背景层 -->
+                        <div class="skeleton" aria-hidden="true"></div>
+                        <img src="{{ doc.cover_url }}" loading="lazy" decoding="async" fetchpriority="low" class="card-img relative z-10 w-full h-full object-contain" alt="{{ doc.title }}"> <!-- 使用 relative 定位并置于上层 -->
+                    </div>
+                    {% else %}
+                    <div class="thumbnail-placeholder bg-gray-100 w-full media-frame ratio-3-4 flex items-center justify-center">
+                        <div class="title-text text-gray-700 text-center px-2">{{ doc.title }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="p-4 flex-grow flex flex-col">
+                    <h3 class="font-bold text-lg mb-2 line-clamp-2">{{ doc.chinese_title or doc.title }}</h3>
+                    <div class="text-sm text-gray-500 mb-3 flex-grow">
+                        <div><i class="fas fa-building"></i> {{ doc.organization.name if doc.organization else '未知组织' }}</div>
+                        <div><i class="fas fa-calendar"></i> {{ doc.publish_date or '未知日期' }}</div>
+                    </div>
+                    <div class="mb-3 flex flex-wrap gap-2">
+                        {% if doc.original_file_url %}
+                            <span class="chip chip--amber" aria-label="英文文档可下载">英文</span>
+                        {% endif %}
+                        {% if doc.translation_file_url %}
+                            <span class="chip chip--green" aria-label="中文文档可下载">中文</span>
+                        {% endif %}
+                        {% if not doc.original_file_url and not doc.translation_file_url %}
+                            <span class="chip chip--free" aria-label="待补充">待上传</span>
+                        {% endif %}
+                    </div>
+                    
+                    <a href="{{ url_for('main.document_detail', id=doc.id) }}" class="mt-auto bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-center transition duration-300">
+                        查看详情
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <script>
+    // 组织标签切换 + 无障碍状态 + 样式 + 指示器 + 渐隐
+    (function() {
+        const tabs = Array.from(document.querySelectorAll('.org-tab'));
+        const panels = Array.from(document.querySelectorAll('.org-panel'));
+        const scrollWrap = document.getElementById('orgTabScroll');
+        const tabList = document.getElementById('orgTabList');
+        const indicator = tabList ? tabList.querySelector('.org-tab-indicator') : null;
+        const fadeLeft = scrollWrap ? scrollWrap.querySelector('.fade-left') : null;
+        const fadeRight = scrollWrap ? scrollWrap.querySelector('.fade-right') : null;
+        if (!tabs.length || !panels.length) return;
+        // 默认激活首个组织
+        const first = tabs[0].dataset.org;
+        function updateIndicator(activeTab){
+            if (!indicator || !activeTab) return;
+            const left = activeTab.offsetLeft;
+            const width = activeTab.offsetWidth;
+            indicator.style.transform = `translateX(${left}px)`;
+            indicator.style.width = width + 'px';
+        }
+        function revealFades(){
+            if (!scrollWrap) return;
+            const sl = scrollWrap.scrollLeft;
+            const max = scrollWrap.scrollWidth - scrollWrap.clientWidth;
+            if (fadeLeft) fadeLeft.style.opacity = sl > 4 ? '1' : '0';
+            if (fadeRight) fadeRight.style.opacity = sl < max - 4 ? '1' : '0';
+        }
+        function activate(org){
+            let activeTab = null;
+            tabs.forEach(t => {
+                const active = t.dataset.org === org;
+                if (active) activeTab = t;
+                t.setAttribute('aria-selected', active ? 'true' : 'false');
+                t.tabIndex = active ? 0 : -1;
+                // active style
+                t.classList.toggle('bg-gradient-to-r', active);
+                t.classList.toggle('from-blue-600', active);
+                t.classList.toggle('to-indigo-600', active);
+                t.classList.toggle('text-white', active);
+                t.classList.toggle('border-blue-600', active);
+                t.classList.toggle('shadow-md', active);
+                // inactive style
+                t.classList.toggle('bg-white', !active);
+                t.classList.toggle('text-gray-700', !active);
+                t.classList.toggle('border-gray-200', !active);
+            });
+            panels.forEach(p => { p.style.display = (p.dataset.org === org) ? '' : 'none'; });
+            if (activeTab) {
+                // 仅在横向容器内滚动以居中活动标签，避免页面垂直跳动
+                if (scrollWrap) {
+                    const targetLeft = Math.max(0, Math.min(
+                        activeTab.offsetLeft - (scrollWrap.clientWidth - activeTab.clientWidth) / 2,
+                        scrollWrap.scrollWidth - scrollWrap.clientWidth
+                    ));
+                    scrollWrap.scrollTo({ left: targetLeft, behavior: 'smooth' });
+                }
+                updateIndicator(activeTab);
+            }
+            revealFades();
+        }
+        tabs.forEach(t => t.addEventListener('click', () => activate(t.dataset.org)));
+        if (scrollWrap) scrollWrap.addEventListener('scroll', revealFades, { passive: true });
+        // 键盘导航
+        tabList && tabList.addEventListener('keydown', (e) => {
+            const currentIndex = tabs.findIndex(t => t.getAttribute('aria-selected') === 'true');
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const dir = e.key === 'ArrowRight' ? 1 : -1;
+                let next = (currentIndex + dir + tabs.length) % tabs.length;
+                const nextTab = tabs[next];
+                nextTab.focus();
+                activate(nextTab.dataset.org);
+            }
+        });
+        // 初始化
+        activate(first);
+    })();
+    </script>
+    <script>
+    // 图片骨架屏：图片加载后隐藏 skeleton 覆盖
+    (function(){
+        const imgs = Array.from(document.querySelectorAll('.card-img-container img.card-img'));
+        imgs.forEach(img => {
+            const hide = ()=>{
+                try { const sk = img.parentElement && img.parentElement.querySelector('.skeleton'); if (sk) sk.classList.add('hidden'); } catch(e){}
+            };
+            if (img.complete) hide();
+            img.addEventListener('load', hide, { once: true });
+            img.addEventListener('error', hide, { once: true });
+        });
+    })();
+    </script>
+</div>
+
+<style>
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+</style>
+<style>
+/* 统一标签 Chip 样式 */
+.chip { display: inline-flex; align-items: center; padding: 0.25rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; border: 1px solid #e5e7eb; background: #f8fafc; color: #334155; transition: transform .15s ease, box-shadow .15s ease; }
+.chip:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(15,23,42,.08); }
+.chip--price { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.chip--free { background: #f1f5f9; border-color: #e2e8f0; color: #334155; }
+.chip--green { background: #ecfdf5; border-color: #bbf7d0; color: #166534; }
+.chip--amber { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.chip--blue { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+
+/* 图片容器统一比例与骨架屏 */
+.media-frame { width: 100%; background: #f8fafc; position: relative; }
+.ratio-3-4 { aspect-ratio: 3 / 4; }
+.skeleton { position: absolute; inset: 0; background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%); background-size: 400% 100%; animation: shimmer 1.2s infinite; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+/* 隐藏横向滚动条但保留触摸滚动 */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+/* 滚动吸附效果 */
+.snap-x { scroll-snap-type: x proximity; }
+.snap-start { scroll-snap-align: start; }
+/* 选项卡容器表面与指示器 */
+.tablist-surface { border: 1px solid rgba(226,232,240,1); }
+.org-tab-indicator { position: absolute; height: 3px; background: linear-gradient(90deg, #2563eb, #4f46e5); bottom: -1px; left: 0; width: 0; transition: transform .25s ease, width .25s ease; border-radius: 9999px; box-shadow: 0 0 0 1px rgba(37,99,235,.15), 0 4px 10px rgba(37,99,235,.25); }
+/* 组织选项卡美化 */
+.org-tab { backdrop-filter: saturate(120%) blur(0px); }
+.org-tab:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(15,23,42,.08), 0 2px 6px rgba(15,23,42,.06); }
+.org-tab[aria-selected="true"] { box-shadow: 0 8px 18px rgba(37,99,235,.25), 0 2px 8px rgba(37,99,235,.25); border-color: transparent; }
+.org-dot { width: 8px; height: 8px; border-radius: 9999px; background: currentColor; opacity: .7; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
+.org-count-badge { display: inline-flex; align-items: center; justify-content: center; padding: 0.125rem 0.5rem; font-size: 0.75rem; line-height: 1; border-radius: 9999px; border: 1px solid #e5e7eb; background: #f8fafc; color: #475569; }
+.org-tab[aria-selected="true"] .org-count-badge { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.35); color: #fff; }
+.org-tab[aria-selected="true"] .org-dot { opacity: 1; box-shadow: 0 0 0 3px rgba(255,255,255,.25); }
+/* 渐隐遮罩 */
+.fade-left, .fade-right { position: absolute; top: 0; bottom: 0; width: 24px; z-index: 10; opacity: 0; transition: opacity .2s ease; }
+.fade-left { left: -1px; background: linear-gradient(to right, rgba(255,255,255,1), rgba(255,255,255,0)); }
+.fade-right { right: -1px; background: linear-gradient(to left, rgba(255,255,255,1), rgba(255,255,255,0)); }
+@media (prefers-color-scheme: dark) {
+  .tablist-surface { background: rgba(17,24,39,.6); border-color: rgba(55,65,81,.6); }
+  .fade-left { background: linear-gradient(to right, rgba(17,24,39,1), rgba(17,24,39,0)); }
+  .fade-right { background: linear-gradient(to left, rgba(17,24,39,1), rgba(17,24,39,0)); }
+  .org-count-badge { background: rgba(31,41,55,.6); border-color: rgba(75,85,99,.5); color: #e5e7eb; }
+  .org-tab[aria-selected="true"] .org-count-badge { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.35); color: #fff; }
+  .chip { background: rgba(31,41,55,.6); border-color: rgba(75,85,99,.5); color: #e5e7eb; }
+  .chip--price { background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.35); color: #86efac; }
+  .chip--free { background: rgba(31,41,55,.6); border-color: rgba(75,85,99,.5); color: #e5e7eb; }
+  .chip--green { background: rgba(22,163,74,.18); border-color: rgba(34,197,94,.35); color: #bbf7d0; }
+  .chip--amber { background: rgba(245,158,11,.15); border-color: rgba(245,158,11,.35); color: #fde68a; }
+  .chip--blue { background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.35); color: #93c5fd; }
+}
+</style>
+{% endblock %}

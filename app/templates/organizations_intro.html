@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - GMP药指汇{% endblock %}
+
+{% block content %}
+<div class="-mx-4 mb-8">
+  <div class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-10 rounded-xl">
+    <h1 class="text-3xl md:text-4xl font-bold mb-2">{{ title }}</h1>
+    <p class="text-white/90">理解 WHO / FDA / ISPE / PDA / APIC 的定位、关联与最佳实践</p>
+    {% if updated_at %}
+    <p class="text-white/70 text-sm mt-2">最后更新：{{ updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    {% endif %}
+    <div class="mt-4 flex items-center gap-2">
+      <a href="{{ url_for('main.organizations_intro', lang='zh') }}" class="px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 {{ 'ring-2 ring-white' if current_lang!='en' else '' }}">中文</a>
+      <a href="{{ url_for('main.organizations_intro', lang='en') }}" class="px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 {{ 'ring-2 ring-white' if current_lang=='en' else '' }}">English</a>
+    </div>
+  </div>
+</div>
+
+<div class="max-w-7xl mx-auto">
+  <!-- Dynamic org cards populated from TOC -->
+  <section class="mb-8" id="org-cards"></section>
+  <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+    <!-- TOC -->
+    <aside class="lg:col-span-1">
+      <div class="bg-white rounded-xl shadow p-4 lg:sticky lg:top-6">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-lg font-semibold">目录</h2>
+          <i class="fas fa-list text-gray-400"></i>
+        </div>
+        <div class="toc text-sm leading-6 space-y-1">
+          {{ toc_html|safe if toc_html else '<p class="text-gray-400">（无目录）</p>'|safe }}
+        </div>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <article class="lg:col-span-3">
+      <div class="bg-white rounded-xl shadow p-6">
+        <div class="md-content">
+          {{ content_html|safe }}
+        </div>
+        <div class="mt-8 pt-4 border-t border-gray-100 text-sm text-gray-500">
+          源文件：<code>app/content/organizations.md</code>（建议通过 Git 编辑，便于审阅与回滚）
+        </div>
+      </div>
+    </article>
+  </div>
+</div>
+
+<style>
+html { scroll-behavior: smooth; }
+.md-content h1, .md-content h2, .md-content h3 { color: #111827; margin-top: 1.25em; font-weight: 700; }
+.md-content h2 { font-size: 1.5rem; border-bottom: 1px solid #f3f4f6; padding-bottom: .5rem; }
+.md-content h3 { font-size: 1.125rem; }
+.md-content p { color: #374151; line-height: 1.9; margin: .75rem 0; }
+.md-content ul { list-style: disc; padding-left: 1.25rem; margin: .5rem 0 1rem; }
+.md-content li { margin: .25rem 0; }
+.md-content a { color: #2563eb; text-decoration: none; }
+.md-content a:hover { text-decoration: underline; }
+.md-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .95rem; }
+.md-content th, .md-content td { border: 1px solid #e5e7eb; padding: .5rem .75rem; }
+.md-content blockquote { border-left: 4px solid #60a5fa; padding: .25rem .75rem; color: #374151; background: #f8fafc; border-radius: .25rem; }
+.md-content code { background: #f3f4f6; padding: .15rem .35rem; border-radius: .25rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.md-content pre { background: #0b1220; color: #e5e7eb; padding: 1rem; border-radius: .5rem; overflow: auto; }
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: .2rem 0; }
+.toc a { display: block; padding: .2rem 0; color: #374151; border-left: 2px solid transparent; padding-left: .5rem; }
+.toc a:hover { color: #1f2937; border-left-color: #93c5fd; }
+.toc a.active { color: #111827; font-weight: 600; border-left-color: #2563eb; }
+</style>
+{% block scripts %}
+<script>
+// Scroll-spy for TOC
+(function() {
+  const toc = document.querySelector('.toc');
+  if (!toc) return;
+  const links = Array.from(toc.querySelectorAll('a[href^="#"]'));
+  const headings = links
+    .map(a => document.querySelector(a.getAttribute('href')))
+    .filter(Boolean);
+
+  function onScroll() {
+    let activeIndex = 0;
+    const fromTop = window.scrollY + 100; // offset for header
+    headings.forEach((h, i) => {
+      if (h.offsetTop <= fromTop) activeIndex = i;
+    });
+    links.forEach((a, i) => a.classList.toggle('active', i === activeIndex));
+  }
+  document.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('load', onScroll);
+})();
+
+// Build organization cards dynamically from top-level TOC items
+(function() {
+  const toc = document.querySelector('.toc');
+  const container = document.getElementById('org-cards');
+  if (!toc || !container) return;
+
+  // Extract first-level items only
+  const topLis = Array.from(toc.querySelectorAll('> ul > li'));
+  if (!topLis.length) return;
+
+  const baseLogo = "{{ url_for('static', filename='img/orgs/') }}";
+  const orgMap = [
+    { key: 'WHO', slug: 'who', color: 'from-emerald-500 to-teal-500' },
+    { key: 'FDA', slug: 'fda', color: 'from-blue-500 to-indigo-500' },
+    { key: 'ISPE', slug: 'ispe', color: 'from-purple-500 to-fuchsia-500' },
+    { key: 'PDA', slug: 'pda', color: 'from-rose-500 to-pink-500' },
+    { key: 'APIC', slug: 'apic', color: 'from-amber-500 to-orange-500' }
+  ];
+
+  const cards = topLis.map(li => {
+    const a = li.querySelector('a');
+    if (!a) return null;
+    const text = a.textContent.trim();
+    const href = a.getAttribute('href');
+    const org = orgMap.find(m => text.toUpperCase().includes(m.key)) || orgMap[0];
+    const logo = baseLogo + org.slug + '.svg';
+    return { text, href, logo, org };
+  }).filter(Boolean);
+
+  container.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      ${cards.map(c => `
+        <a href="${c.href}" class="block group">
+          <div class="rounded-xl p-4 bg-gradient-to-r ${c.org.color} text-white shadow hover:shadow-lg transition">
+            <div class="flex items-center gap-3">
+              <img src="${c.logo}" alt="${c.text} logo" class="w-10 h-10 rounded-lg bg-white/20 p-1 shadow-sm"/>
+              <div class="font-semibold">${c.text}</div>
+            </div>
+            <div class="mt-2 text-white/80 text-sm">跳转到该组织介绍</div>
+          </div>
+        </a>
+      `).join('')}
+    </div>
+  `;
+})();
+</script>
+{% endblock %}
+{% endblock %}

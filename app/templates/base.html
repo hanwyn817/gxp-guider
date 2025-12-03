@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}GMP药指汇{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://unpkg.com/alpinejs" defer></script>
+    <!-- 引入 StackBlur 库用于图片模糊 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stackblur-canvas/2.6.0/stackblur.min.js"></script>
+    <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/app-icon-320.svg') }}">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#64748b',
+                        accent: '#10b981',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-blue-600 text-white shadow-lg">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <a class="text-xl font-bold flex items-center" href="{{ url_for('main.index') }}">
+                    <i class="fas fa-book-medical mr-2"></i>
+                    <span>GMP药指汇</span>
+                </a>
+                
+                <div class="hidden md:flex items-center space-x-1">
+                    <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="{{ url_for('main.index') }}">首页</a>
+                    <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="{{ url_for('main.documents') }}">文档库</a>
+                    <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="{{ url_for('main.organizations_intro') }}">组织介绍</a>
+                    
+                    {% if current_user.is_authenticated %}
+                        <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="{{ url_for('auth.profile') }}">个人中心</a>
+                        {% if current_user.is_admin() %}
+                        <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="/admin">管理后台</a>
+                        <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="{{ url_for('admin_panel.upload_document') }}">上传文档</a>
+                        {% endif %}
+                        <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="{{ url_for('auth.logout') }}">退出</a>
+                    {% else %}
+                        <a class="px-3 py-2 rounded hover:bg-blue-700 transition duration-300" href="{{ url_for('auth.login') }}">登录</a>
+                        <a class="px-3 py-2 rounded bg-white text-blue-600 hover:bg-gray-100 transition duration-300" href="{{ url_for('auth.register') }}">注册</a>
+                    {% endif %}
+                </div>
+                
+                <!-- 移动端菜单按钮 -->
+                <div class="md:hidden">
+                    <button id="mobile-menu-button" class="text-white focus:outline-none">
+                        <i class="fas fa-bars text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 移动端菜单 -->
+        <div id="mobile-menu" class="hidden md:hidden bg-blue-700">
+            <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="{{ url_for('main.index') }}">首页</a>
+                <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="{{ url_for('main.documents') }}">文档库</a>
+                <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="{{ url_for('main.organizations_intro') }}">组织介绍</a>
+                
+                {% if current_user.is_authenticated %}
+                    <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="{{ url_for('auth.profile') }}">个人中心</a>
+                    {% if current_user.is_admin() %}
+                    <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="/admin">管理后台</a>
+                    {% endif %}
+                    <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="{{ url_for('auth.logout') }}">退出</a>
+                {% else %}
+                    <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="{{ url_for('auth.login') }}">登录</a>
+                    <a class="block px-3 py-2 rounded hover:bg-blue-800 transition duration-300" href="{{ url_for('auth.register') }}">注册</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto px-4 py-6">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-4 rounded" role="alert">
+                        <p>{{ message }}</p>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer class="bg-gray-800 text-white py-8 mt-12">
+        <div class="container mx-auto px-4 text-center">
+            <p class="mb-2">&copy; 2025 GMP药指汇. 保留所有权利.</p>
+            <p class="text-gray-400 text-sm">专业的GMP指南文档平台</p>
+        </div>
+    </footer>
+
+    <script>
+        // 移动端菜单切换
+        document.getElementById('mobile-menu-button').addEventListener('click', function() {
+            const menu = document.getElementById('mobile-menu');
+            menu.classList.toggle('hidden');
+        });
+    </script>
+    <!-- 引入自定义的模糊缩略图脚本 -->
+    <script src="{{ url_for('static', filename='js/blur-thumbnail.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

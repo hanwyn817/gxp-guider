@@ -1,0 +1,70 @@
+{% extends 'admin/master.html' %}
+{% block body %}
+<div class="container-fluid mt-3">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0">分类管理</h4>
+    <div>
+      <a href="{{ url_for('admin.index') }}" class="btn btn-light btn-sm">管理主页</a>
+      <a href="{{ url_for('admin_categories.index_view', mode='table') }}" class="btn btn-outline-secondary btn-sm">表格模式</a>
+      <a href="{{ url_for('admin_categories.create_view') }}" class="btn btn-primary btn-sm">新建分类</a>
+    </div>
+  </div>
+
+  <form class="form-inline mb-3" method="get" action="{{ url_for('admin_categories.index_view') }}">
+    <input type="hidden" name="mode" value="cards">
+    <label class="mr-2">按组织筛选：</label>
+    <select class="form-control form-control-sm mr-2" name="org_id" onchange="this.form.submit()">
+      <option value="">全部组织</option>
+      {% for o in all_orgs %}
+        <option value="{{ o.id }}" {% if current_org_id==o.id %}selected{% endif %}>{{ o.name }}</option>
+      {% endfor %}
+    </select>
+    {% if current_org_id %}
+      <a class="btn btn-link btn-sm" href="{{ url_for('admin_categories.index_view', mode='cards') }}">清除筛选</a>
+    {% endif %}
+  </form>
+
+  {% if mode == 'cards' %}
+    {% if categories_by_org %}
+      {% for org, cats in categories_by_org.items() %}
+        <div class="card mb-4 shadow-sm">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <div class="font-weight-bold">{{ org.name }}（{{ cats|length }} 个分类）</div>
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_categories.create_view') }}?org_id={{ org.id }}&org_name={{ org.name | urlencode }}">为该组织新建</a>
+          </div>
+          <div class="card-body py-3">
+            {% if cats %}
+              <div class="d-flex flex-wrap">
+                {% for c in cats %}
+                  {% set cnt = counts.get(c.id, 0) %}
+                  <div class="border rounded px-3 py-2 m-1" style="min-width: 220px;">
+                    <div class="d-flex align-items-center justify-content-between">
+                      <div class="text-truncate mr-2" title="{{ c.name }}">{{ c.name }}</div>
+                      <span class="badge badge-info" title="文档数量">{{ cnt }}</span>
+                    </div>
+                    <div class="mt-2">
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_categories.edit_view', id=c.id) }}">编辑</a>
+                      {# 通过自定义查询参数 q_org/q_cat 触发默认过滤 #}
+                      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_documents.index_view') }}?q_org={{ org.name | urlencode }}&q_cat={{ c.name | urlencode }}">查看文档</a>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted">暂无分类。</div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="alert alert-secondary">暂无分类数据。</div>
+    {% endif %}
+  {% else %}
+    {# 回退表格模式时，Flask-Admin 的原始模板会被使用 #}
+  {% endif %}
+
+  <div class="text-right mt-4">
+    <a href="{{ url_for('admin_categories.index_view', mode='table') }}" class="text-muted small">切换为表格模式</a>
+  </div>
+</div>
+{% endblock %}

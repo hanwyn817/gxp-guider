@@ -1,0 +1,354 @@
+<script>
+// 收集后端 flash 消息（保存成功/失败）供前端展示
+window.__serverFlashes = {{ get_flashed_messages(with_categories=true) | tojson }};
+document.addEventListener('DOMContentLoaded', function() {
+    // 当前文档ID（编辑页有，创建页为 null）
+    const docId = {{ request.args.get('id')|default(None)|tojson }};
+
+    // Handle original/translation areas
+    const originalUploadArea = document.getElementById('original-file-upload-area');
+    const originalFileInput = document.getElementById('original_file_upload');
+    const originalFileInfo = document.getElementById('original-file-info');
+    if (originalUploadArea && originalFileInput) setupDragAndDrop(originalUploadArea, originalFileInput, originalFileInfo);
+
+    const translationUploadArea = document.getElementById('translation-file-upload-area');
+    const translationFileInput = document.getElementById('translation_file_upload');
+    const translationFileInfo = document.getElementById('translation-file-info');
+    if (translationUploadArea && translationFileInput) setupDragAndDrop(translationUploadArea, translationFileInput, translationFileInfo);
+
+    const orgField = document.querySelector('[name="org"]');
+    const catField = document.querySelector('[name="cat"]');
+    const titleField = document.querySelector('[name="title"]');
+
+    // Toast
+    const toastWrap = document.getElementById('admin-toast') || (function(){
+        const d = document.createElement('div'); d.id='admin-toast'; d.innerHTML = '<div class="toast-box" id="admin-toast-box"></div>'; document.body.appendChild(d); return d; })();
+    const toastBox = document.getElementById('admin-toast-box');
+    function showToast(msg){ if(!toastBox) return; toastBox.textContent = msg; toastWrap.style.display='block'; setTimeout(()=>{ toastWrap.style.display='none'; }, 1800); }
+
+    // 上传状态管理
+    let uploading = 0;
+    const lock = document.createElement('div');
+    lock.className = 'upload-lock';
+    lock.innerHTML = '<div class="msg">正在上传文档，请稍候…</div>';
+    document.body.appendChild(lock);
+    function setUploading(delta){
+        uploading = Math.max(0, uploading + delta);
+        const any = uploading > 0;
+        lock.style.display = any ? 'flex' : 'none';
+        const submitBtns = document.querySelectorAll('form [type="submit"], form button[type="submit"]');
+        submitBtns.forEach(b=>{ b.disabled = any; b.dataset.origText ??= b.textContent; b.textContent = any ? '上传中…' : b.dataset.origText; });
+        window.onbeforeunload = any ? ()=>'文件正在上传，确定要离开吗？' : null;
+    }
+
+    // 字段分组：将表单字段按分节组织到容器
+    (function groupFields(){
+        const src = document.getElementById('admin-form-fields-source');
+        if (!src) return; // 不是增强布局的页面
+
+        const map = {
+            ownership: ['org', 'cat', 'org_id', 'category_id'],
+            titles: ['title', 'chinese_title', 'summary', 'chinese_summary'],
+            meta: ['publish_date', 'source_url', 'cover_url'],
+            pricing: [],
+            language: ['original_file_url', 'translation_file_url', 'original_preview_url', 'translation_preview_url'],
+            system: ['id', 'created_at', 'updated_at']
+        };
+        const containers = {
+            ownership: document.getElementById('sec-ownership'),
+            titles: document.getElementById('sec-titles'),
+            meta: document.getElementById('sec-meta'),
+            pricing: document.getElementById('sec-pricing'),
+            language: document.getElementById('sec-language'),
+            systemWrap: document.getElementById('sec-system-wrap'),
+            system: document.getElementById('sec-system'),
+            othersWrap: document.getElementById('sec-others-wrap'),
+            others: document.getElementById('sec-others')
+        };
+
+        // 记录已移动的 form-group
+        const moved = new Set();
+        function moveByNames(names, target){
+            if (!target) return;
+            names.forEach(n => {
+                const el = src.querySelector(`[name="${n}"]`);
+                if (!el) return;
+                const fg = el.closest('.form-group') || el.closest('.form-row') || el.parentElement;
+                if (fg && !moved.has(fg)) { target.appendChild(fg); moved.add(fg); }
+            });
+        }
+        moveByNames(map.ownership, containers.ownership);
+        moveByNames(map.titles, containers.titles);
+        moveByNames(map.meta, containers.meta);
+        moveByNames(map.pricing, containers.pricing);
+        moveByNames(map.language, containers.language);
+        moveByNames(map.system, containers.system);
+
+        // 概述与中文概述各占一整行，避免同一行显示
+        ['summary','chinese_summary'].forEach(n => {
+            const el = (containers.titles || document).querySelector(`[name="${n}"]`);
+            if (!el) return;
+            const fg = el.closest('.form-group') || el.closest('.form-row') || el.parentElement;
+            if (fg) fg.classList.add('admin-field-full');
+        });
+
+        // 显示系统分节并将其字段标记为只读
+        if (containers.system && containers.system.children.length > 0) {
+            if (containers.systemWrap) containers.systemWrap.style.display = '';
+            map.system.forEach(n => {
+                const el = containers.system.querySelector(`[name="${n}"]`);
+                if (!el) return;
+                try { el.setAttribute('readonly','readonly'); el.setAttribute('disabled','disabled'); } catch(e){}
+                const fg = el.closest('.form-group') || el.closest('.form-row') || el.parentElement;
+                if (fg) fg.classList.add('admin-readonly');
+            });
+        }
+
+        // 如果“定价”节为空，则隐藏该分节
+        if (containers.pricing && containers.pricing.children.length === 0) {
+            const wrap = containers.pricing.closest('.admin-section') || containers.pricing.parentElement;
+            if (wrap) wrap.style.display = 'none';
+        }
+
+        // 将剩余未识别的 form-group 放入“其他”
+        const rest = Array.from(src.querySelectorAll('.form-group, .form-row'))
+            .filter(fg => !moved.has(fg));
+        if (rest.length && containers.others && containers.othersWrap){
+            rest.forEach(fg => containers.others.appendChild(fg));
+            containers.othersWrap.style.display = '';
+        }
+
+        // 移除来源容器
+        src.parentElement && src.parentElement.removeChild(src);
+    })();
+
+    // 根据 Sticky 保存栏高度为 body 预留空间
+    (function stickyBarPadding(){
+        const bar = document.getElementById('admin-sticky-save');
+        if (!bar) return;
+        const pad = Math.max(64, bar.offsetHeight + 8);
+        try { document.body.style.paddingBottom = pad + 'px'; } catch(e){}
+    })();
+
+    async function presignUpload({ orgId, documentType, title, file }) {
+        const res = await fetch('{{ url_for("admin_panel.presign_upload") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ organization_id: orgId, document_type: documentType, title: title || file.name, filename: file.name, content_type: file.type || 'application/octet-stream' })
+        });
+        const json = await res.json();
+        if (!res.ok || !json.url) throw new Error(json.error || '预签名失败');
+        return json;
+    }
+
+    async function putToR2(url, file, contentType, onProgress, onXhr) {
+        await new Promise((resolve, reject)=>{
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url, true);
+            xhr.setRequestHeader('Content-Type', contentType);
+            if (xhr.upload && typeof onProgress === 'function') xhr.upload.onprogress = (e)=>{ if (e.lengthComputable) onProgress(e.loaded, e.total); };
+            if (typeof onXhr === 'function') onXhr(xhr);
+            xhr.onabort = ()=> reject(new Error('已取消'));
+            xhr.onload = ()=> (xhr.status>=200 && xhr.status<300) ? resolve() : reject(new Error('直传失败: '+xhr.status));
+            xhr.onerror = ()=> reject(new Error('网络错误'));
+            xhr.send(file);
+        });
+    }
+
+    async function finalizeUpload({ orgId, catId, documentType, title, key }) {
+        const res = await fetch('{{ url_for("admin_panel.finalize_upload") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ organization_id: orgId, category_id: catId, document_type: documentType, title: title, key: key, document_id: docId })
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.error || '落库失败');
+        return json;
+    }
+
+    // 错误提示区域
+    function ensureErrorBox() {
+        let box = document.getElementById('admin-error-box');
+        if (!box) {
+            box = document.createElement('div');
+            box.id = 'admin-error-box';
+            box.className = 'alert alert-danger';
+            box.style.display = 'none';
+            const container = document.querySelector('.container-fluid') || document.body;
+            container.insertBefore(box, container.firstChild);
+        }
+        return box;
+    }
+    function showErr(phase, msg, detail){
+        const box = ensureErrorBox();
+        box.style.display = '';
+        box.innerHTML = `<strong>${phase}失败：</strong> ${msg||''}${detail?`<pre style="white-space:pre-wrap;margin-top:.5rem">${detail}</pre>`:''}`;
+    }
+    function clearErr(){ const box = document.getElementById('admin-error-box'); if (box){ box.style.display='none'; box.textContent=''; } }
+
+    // 页面载入时展示后端 flash（成功用 toast，失败用 alert）
+    try {
+        if (Array.isArray(window.__serverFlashes) && window.__serverFlashes.length) {
+            window.__serverFlashes.forEach(function(item){
+                const cat = item[0] || 'info';
+                const msg = item[1] || '';
+                if (!msg) return;
+                if (cat === 'error' || cat === 'danger') {
+                    showErr('保存', msg);
+                } else {
+                    showToast(msg);
+                }
+            });
+        }
+    } catch (e) {}
+
+    // 封面直传
+    const coverUrlInput = document.querySelector('[name="cover_url"]');
+    const coverBtn = document.getElementById('cover-image-upload-btn');
+    const coverFileInput = document.getElementById('cover_image_file');
+    const coverPreview = document.getElementById('cover-image-preview');
+    const coverProg = document.getElementById('cover-progress');
+    const coverProgBar = document.getElementById('cover-progress-bar');
+    const coverCancelBtn = document.getElementById('cover-cancel');
+    const uploads = { original: null, translation: null, cover: null };
+    function setCoverProgress(p){ if(!coverProg||!coverProgBar) return; coverProg.style.display=''; const pct=Math.max(0,Math.min(100,Math.round(p))); coverProgBar.style.width=pct+'%'; coverProgBar.textContent=pct+'%'; if(pct>=100) setTimeout(()=>{ coverProg.style.display='none'; },600); }
+
+    async function uploadCover(file){
+        try {
+            clearErr();
+            const orgId = orgField && orgField.value;
+            if (!orgId){ showErr('校验', '请先选择所属组织'); return; }
+            const pres = await fetch('{{ url_for("admin_panel.presign_cover") }}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organization_id: orgId, filename: file.name, content_type: file.type || 'image/png' }) });
+            const pjson = await pres.json();
+            if (!pres.ok || !pjson.url) { showErr('预签名', pjson.error || '失败'); return; }
+            await new Promise((resolve, reject)=>{
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', pjson.url, true);
+                xhr.setRequestHeader('Content-Type', pjson.content_type || (file.type || 'image/png'));
+                if (xhr.upload){ xhr.upload.onprogress = (e)=>{ if(e.lengthComputable) setCoverProgress(e.loaded/e.total*100); }; }
+                uploads.cover = xhr;
+                if (coverCancelBtn){ coverCancelBtn.style.display='inline-block'; }
+                xhr.onload = ()=> (xhr.status>=200 && xhr.status<300) ? resolve() : reject(new Error('封面直传失败: '+xhr.status));
+                xhr.onerror = ()=> reject(new Error('网络错误'));
+                xhr.onabort = ()=> reject(new Error('已取消'));
+                xhr.send(file);
+            });
+            const finRes = await fetch('{{ url_for("admin_panel.finalize_cover") }}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organization_id: orgId, document_id: docId, key: pjson.key }) });
+            const fin = await finRes.json();
+            if (!finRes.ok || !fin.success){ showErr('Finalize', fin.error || '失败'); return; }
+            if (coverUrlInput) coverUrlInput.value = fin.url;
+            if (coverPreview){ coverPreview.src = fin.url; coverPreview.style.display = ''; }
+            showToast('封面已上传');
+        } catch (e){
+            console.error(e);
+            if ((e && e.message) !== '已取消') showErr('异常', e.message || e);
+        } finally {
+            if (coverFileInput) coverFileInput.value = '';
+            uploads.cover = null;
+            if (coverCancelBtn){ coverCancelBtn.style.display='none'; }
+        }
+    }
+
+    if (coverBtn && coverFileInput){
+        coverBtn.addEventListener('click', ()=> coverFileInput.click());
+        coverFileInput.addEventListener('change', ()=>{ const f = coverFileInput.files && coverFileInput.files[0]; if (f) uploadCover(f); });
+    }
+
+    // 文档直传
+    const originalProg = document.getElementById('original-progress');
+    const originalProgBar = document.getElementById('original-progress-bar');
+    const translationProg = document.getElementById('translation-progress');
+    const translationProgBar = document.getElementById('translation-progress-bar');
+    const originalCancelBtn = document.getElementById('original-cancel');
+    const translationCancelBtn = document.getElementById('translation-cancel');
+    function setProgress(kind, p){
+        const wrap = kind==='original' ? originalProg : translationProg;
+        const bar = kind==='original' ? originalProgBar : translationProgBar;
+        if (!wrap || !bar) return;
+        wrap.style.display = '';
+        const pct = Math.max(0, Math.min(100, Math.round(p)));
+        bar.style.width = pct + '%';
+        bar.textContent = pct + '%';
+        if (pct >= 100) setTimeout(()=>{ wrap.style.display='none'; }, 600);
+    }
+
+    async function handleDirectUpload(kind) {
+        try {
+            clearErr();
+            setUploading(+1);
+            const fileInput = kind === 'original' ? originalFileInput : translationFileInput;
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) return;
+            const orgId = orgField && orgField.value; const catId = catField && catField.value;
+            if (!orgId || !catId) { showErr('校验', '请先选择组织和分类'); return; }
+            const title = titleField && titleField.value || file.name;
+            let sign;
+            try { sign = await presignUpload({ orgId, documentType: (kind === 'original' ? 'original' : 'translation'), title, file }); }
+            catch(e){ showErr('预签名', e.message); throw e; }
+            try {
+                const btn = kind==='original' ? originalCancelBtn : translationCancelBtn;
+                if (btn) btn.style.display = 'inline-block';
+                await putToR2(sign.url, file, sign.content_type, (loaded,total)=> setProgress(kind, loaded/total*100), (xhr)=>{ uploads[kind] = xhr; });
+            }
+            catch(e){ showErr('直传（PUT 到 R2）', '浏览器网络错误或被 CORS 拦截。请在 R2 桶 CORS 允许你的站点域名、PUT、Content-Type。', e.message); throw e; }
+            let fin;
+            try { fin = await finalizeUpload({ orgId, catId, documentType: (kind === 'original' ? 'original' : 'translation'), title, key: sign.key }); }
+            catch(e){ showErr('Finalize', e.message); throw e; }
+            const urlFieldName = kind === 'original' ? 'original_file_url' : 'translation_file_url';
+            const prevFieldName = kind === 'original' ? 'original_preview_url' : 'translation_preview_url';
+            const urlInput = document.querySelector(`[name="${urlFieldName}"]`);
+            const prevInput = document.querySelector(`[name="${prevFieldName}"]`);
+            if (urlInput) urlInput.value = fin.file_url || '';
+            if (prevInput) prevInput.value = fin.preview_url || '';
+            fileInput.value = '';
+            showToast(kind === 'original' ? '英文文档上传完成' : '中文文档上传完成');
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setUploading(-1);
+            uploads[kind] = null;
+            const btn = kind==='original' ? originalCancelBtn : translationCancelBtn;
+            if (btn) btn.style.display = 'none';
+        }
+    }
+
+    if (originalFileInput) originalFileInput.addEventListener('change', () => handleDirectUpload('original'));
+    if (translationFileInput) translationFileInput.addEventListener('change', () => handleDirectUpload('translation'));
+
+    if (originalCancelBtn) originalCancelBtn.addEventListener('click', function(){ if (uploads.original) uploads.original.abort(); });
+    if (translationCancelBtn) translationCancelBtn.addEventListener('click', function(){ if (uploads.translation) uploads.translation.abort(); });
+    if (coverCancelBtn) coverCancelBtn.addEventListener('click', function(){ if (uploads.cover) uploads.cover.abort(); });
+
+    // 提交时校验上传状态，避免中断直传
+    const adminForm = document.querySelector('form');
+    if (adminForm) {
+        adminForm.addEventListener('submit', (e) => {
+            if (uploading > 0) {
+                e.preventDefault();
+                showErr('提交被阻止', '文件仍在上传中，请稍候完成后再保存。');
+                return false;
+            }
+            if (originalFileInput) originalFileInput.disabled = true;
+            if (translationFileInput) translationFileInput.disabled = true;
+        });
+    }
+
+    function setupDragAndDrop(uploadArea, fileInput, fileInfo) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, preventDefaults, false);
+        });
+        ['dragenter', 'dragover'].forEach(eventName => { uploadArea.addEventListener(eventName, highlight, false); });
+        ['dragleave', 'drop'].forEach(eventName => { uploadArea.addEventListener(eventName, unhighlight, false); });
+        uploadArea.addEventListener('drop', handleDrop, false);
+        uploadArea.addEventListener('click', function() { fileInput.click(); });
+        fileInput.addEventListener('change', function() {
+            if (fileInput.files.length > 0) fileInfo.textContent = fileInput.files[0].name; else fileInfo.textContent = '';
+        });
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+        function highlight() { uploadArea.classList.add('dragover'); }
+        function unhighlight() { uploadArea.classList.remove('dragover'); }
+        function handleDrop(e) {
+            const dt = e.dataTransfer; const files = dt.files;
+            if (files.length > 0) { fileInput.files = files; fileInfo.textContent = files[0].name; }
+        }
+    }
+});
+</script>

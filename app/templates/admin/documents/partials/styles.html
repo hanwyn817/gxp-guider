@@ -1,0 +1,74 @@
+<style>
+    /* 基础容器卡片 */
+    .admin-card { background: #ffffff; border-radius: 12px; border: 1px solid rgba(0,0,0,.06); box-shadow: 0 8px 24px rgba(16,24,40,.06); overflow: hidden; }
+    .admin-card__header { padding: 14px 16px; border-bottom: 1px solid rgba(0,0,0,.06); background: linear-gradient(180deg, rgba(249,250,251,1), rgba(249,250,251,.7)); }
+    .admin-card__title { font-weight: 600; display: flex; align-items: center; }
+    .admin-card__sub { font-size: 12px; margin-top: 4px; }
+    .admin-card__body { padding: 16px; }
+
+    /* 上传区域 */
+    .upload-area { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 18px; text-align: center; margin: 10px 0; background: #f8fafc; transition: all 0.2s ease, transform 0.2s ease; cursor: pointer; }
+    .upload-area:hover { border-color: #3b82f6; background: #eef5ff; box-shadow: inset 0 0 0 2px rgba(59,130,246,.08); }
+    .upload-area.dragover { border-color: #3b82f6; background: #e8f1ff; transform: translateY(-2px); }
+    .upload-area p { margin: 0; color: #334155; font-size: 14px; }
+    .upload-area .file-info { margin-top: 10px; font-size: 12px; color: #0ea5e9; font-weight: 600; }
+    .upload-input { display: none; }
+
+    /* 覆盖上传中锁屏 */
+    .upload-lock { position: fixed; inset: 0; background: rgba(255,255,255,0.65); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; z-index: 1050; }
+    .upload-lock .msg{ background:#ffffff;padding:14px 18px;border-radius:10px;box-shadow:0 10px 24px rgba(2,6,23,.12); font-weight: 500; color:#0f172a; }
+
+    /* 进度条 */
+    .progress { height: 10px; margin-top: 8px; display: none; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .progress .progress-bar { line-height: 10px; font-size: 10px; background-image: linear-gradient(90deg,#3b82f6,#6366f1); }
+
+    /* Toast */
+    #admin-toast { position: fixed; right: 16px; bottom: 16px; z-index: 1100; display: none; }
+    #admin-toast .toast-box { background:#1f2937;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.25); font-size: 13px; }
+
+    /* 封面预览 */
+    #cover-image-preview { border-radius: 8px; border: 1px solid rgba(0,0,0,.06); box-shadow: 0 6px 18px rgba(2,6,23,.06); }
+
+    /* 细节优化 */
+    .btn.btn-secondary.btn-sm { border-radius: 999px; }
+    .btn.btn-link.btn-sm { color: #64748b; }
+    .form-group > label.control-label { font-weight: 600; color: #0f172a; }
+    .form-control, .custom-select { border-radius: 10px; }
+
+    /* 字段分节样式 */
+    .admin-section { margin-bottom: 18px; }
+    .admin-section__title { font-weight: 600; color: #334155; margin-bottom: 8px; border-left: 3px solid #3b82f6; padding-left: 8px; }
+    .admin-section__body { display: grid; grid-template-columns: 1fr; grid-gap: 8px 16px; }
+    @media (min-width: 992px) {
+        .admin-section__body { grid-template-columns: 1fr 1fr; }
+    }
+    /* 使某些字段在分节内占满整行 */
+    .admin-field-full { grid-column: 1 / -1; }
+    .admin-section--system .admin-section__title { border-left-color: #94a3b8; color: #475569; }
+    .admin-readonly .form-control { background: #f8fafc; color: #475569; cursor: not-allowed; }
+    .admin-readonly .input-group-text, .admin-readonly .custom-select { background: #f8fafc; }
+    .admin-readonly input, .admin-readonly select, .admin-readonly textarea { pointer-events: none; }
+
+    /* 固定保存栏 */
+    .admin-sticky-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1080; background: rgba(255,255,255,.88); backdrop-filter: blur(6px); border-top: 1px solid rgba(0,0,0,.06); box-shadow: 0 -10px 24px rgba(2,6,23,.08); }
+    .admin-sticky-bar__inner { max-width: 1140px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; }
+    .admin-sticky-bar__info { color: #475569; font-size: 14px; }
+    body { padding-bottom: 64px; }
+
+    @media (prefers-color-scheme: dark) {
+        .admin-card { background: #0b1220; border-color: rgba(148,163,184,.18); box-shadow: 0 8px 24px rgba(2,6,23,.35); }
+        .admin-card__header { border-color: rgba(148,163,184,.14); background: linear-gradient(180deg, rgba(15,23,42,.9), rgba(15,23,42,.6)); }
+        .admin-card__title, .admin-card__sub { color: #e2e8f0; }
+        .upload-area { background: #0f172a; border-color: #334155; }
+        .upload-area p { color: #e5e7eb; }
+        .upload-area .file-info { color: #93c5fd; }
+        .upload-lock { background: rgba(2,6,23,.6); }
+        .upload-lock .msg { background: #111827; color: #e5e7eb; }
+        .progress { background: #1f2937; }
+        .admin-section__title { color: #e5e7eb; border-left-color: #60a5fa; }
+        .admin-section--system .admin-section__title { border-left-color: #64748b; color: #cbd5e1; }
+        .admin-readonly .form-control, .admin-readonly .custom-select { background: #0b1220; color: #94a3b8; }
+        .admin-sticky-bar { background: rgba(15,23,42,.78); border-top-color: rgba(148,163,184,.2); box-shadow: 0 -10px 24px rgba(0,0,0,.4); }
+        .admin-sticky-bar__info { color: #cbd5e1; }
+    }
+</style>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="320" height="320" viewBox="0 0 320 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">GMP药指汇 应用图标</title>
+  <desc id="desc">蓝色圆角背景，中央是白色书本与医学十字，代表GMP文档与医药主题。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#1e40af" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="320" height="320" rx="44" fill="url(#bg)"/>
+
+  <!-- Book icon (white) -->
+  <g filter="url(#softShadow)" transform="translate(0,4)">
+    <!-- Left page -->
+    <rect x="74" y="76" width="86" height="148" rx="14" fill="#ffffff" opacity="0.96"/>
+    <!-- Right page -->
+    <rect x="160" y="76" width="86" height="148" rx="14" fill="#ffffff" opacity="0.96"/>
+    <!-- Spine highlight -->
+    <rect x="156" y="84" width="4" height="132" rx="2" fill="#e5e7eb"/>
+    <!-- Bookmark -->
+    <path d="M200 76 h30 v46 l-15 -10 l-15 10 z" fill="#e0f2fe"/>
+  </g>
+
+  <!-- Medical cross in circle (accent) -->
+  <g transform="translate(0,4)">
+    <circle cx="232" cy="206" r="30" fill="#10b981"/>
+    <rect x="228" y="188" width="8" height="36" rx="2" fill="#ffffff"/>
+    <rect x="214" y="202" width="36" height="8" rx="2" fill="#ffffff"/>
+  </g>
+
+  <!-- Subtle foreground shine -->
+  <path d="M24,88 C24,88 68,36 160,36 C252,36 296,88 296,88 C296,88 252,64 160,64 C68,64 24,88 24,88 Z" fill="#ffffff" opacity="0.08"/>
+</svg>
+

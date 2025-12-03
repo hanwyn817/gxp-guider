@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}GMP药指汇 - 文档库{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-800">文档库</h1>
+        <p class="text-gray-600">浏览和搜索所有GMP相关文档</p>
+    </div>
+
+    <!-- 筛选表单 -->
+    <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+        <form method="GET" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div>
+                    <label for="org_id" class="block text-sm font-medium text-gray-700 mb-1">组织</label>
+                    <select class="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" id="org_id" name="org_id">
+                        <option value="">全部</option>
+                        {% for org in organizations %}
+                        <option value="{{ org.id }}" {% if org_id == org.id %}selected{% endif %}>{{ org.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="category_id" class="block text-sm font-medium text-gray-700 mb-1">分类</label>
+                    <select class="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" id="category_id" name="category_id">
+                        <option value="">全部</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}" {% if category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="keyword" class="block text-sm font-medium text-gray-700 mb-1">关键词</label>
+                    <input type="text" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" id="keyword" name="keyword" value="{{ keyword }}" placeholder="中英文标题">
+                </div>
+                <div class="lg:col-span-2 relative">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">发布日期</label>
+                    <div class="flex items-center space-x-1 relative z-20">
+                        <input type="date" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50 text-sm" id="start_date" name="start_date" value="{{ start_date or '' }}">
+                        <span class="text-gray-500">-</span>
+                        <input type="date" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50 text-sm" id="end_date" name="end_date" value="{{ end_date or '' }}">
+                    </div>
+                </div>
+                <div>
+                    <label for="file" class="block text-sm font-medium text-gray-700 mb-1">可下载版本</label>
+                    <select class="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" id="file" name="file">
+                        <option value="" {% if not file %}selected{% endif %}>全部</option>
+                        <option value="original" {% if file == 'original' %}selected{% endif %}>可下载英文</option>
+                        <option value="translation" {% if file == 'translation' %}selected{% endif %}>可下载中文</option>
+                        <option value="any" {% if file == 'any' %}selected{% endif %}>任一可下载</option>
+                    </select>
+                </div>
+                <div class="flex items-end space-x-2">
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition duration-300">
+                        筛选
+                    </button>
+                    <a href="{{ url_for('main.documents') }}" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded-lg text-center transition duration-300">
+                        重置
+                    </a>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- 文档列表 -->
+    {% if docs %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {% for doc in docs %}
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition duration-300 flex flex-col h-full">
+            <div class="card-img-container">
+                {% if doc.cover_url %}
+                <div class="thumbnail-wrapper relative overflow-hidden"> <!-- 使用 relative 定位 -->
+                    <div class="thumbnail-blur-bg absolute inset-0 z-0"></div> <!-- 模糊背景层 -->
+                    <img src="{{ doc.cover_url }}" class="relative z-10 w-full h-48 object-contain" alt="{{ doc.title }}"> <!-- 使用 relative 定位并置于上层 -->
+                </div>
+                {% else %}
+                <div class="thumbnail-placeholder bg-gray-100 w-full h-48 flex items-center justify-center">
+                    <div class="title-text text-gray-700 text-center px-2">{{ doc.title }}</div>
+                </div>
+                {% endif %}
+            </div>
+            <div class="p-4 flex-grow flex flex-col">
+                <h3 class="font-bold text-lg mb-2 line-clamp-2">{{ doc.chinese_title or doc.title }}</h3>
+                <div class="text-sm text-gray-500 mb-3 flex-grow">
+                    <div><i class="fas fa-building"></i> {{ doc.organization.name if doc.organization else '未知组织' }}</div>
+                    <div><i class="fas fa-calendar"></i> {{ doc.publish_date or '未知日期' }}</div>
+                </div>
+                <div class="mb-3">
+                    {% if doc.original_file_url %}
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+                            英文
+                        </span>
+                    {% endif %}
+                    {% if doc.translation_file_url %}
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                            中文
+                        </span>
+                    {% endif %}
+                </div>
+                <a href="{{ url_for('main.document_detail', id=doc.id) }}" class="mt-auto bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-center transition duration-300">
+                    查看详情
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl shadow-lg p-12 text-center">
+        <i class="fas fa-file-alt text-5xl text-gray-300 mb-4"></i>
+        <h3 class="text-xl font-medium text-gray-700 mb-2">没有找到相关文档</h3>
+        <p class="text-gray-500 mb-4">请尝试调整筛选条件</p>
+        <a href="{{ url_for('main.documents') }}" class="text-blue-600 hover:text-blue-800">
+            清空筛选条件
+        </a>
+    </div>
+    {% endif %}
+
+    <!-- 分页 -->
+    {% if pagination.pages > 1 %}
+    <div class="flex justify-center mt-8">
+        <nav class="flex items-center space-x-1">
+            {% if pagination.has_prev %}
+            <a href="{{ url_for('main.documents', page=pagination.prev_num, org_id=org_id, category_id=category_id, keyword=keyword, start_date=start_date, end_date=end_date, file=file) }}" class="px-3 py-2 rounded-lg bg-white shadow hover:bg-gray-100">
+                <i class="fas fa-chevron-left"></i>
+            </a>
+            {% endif %}
+            
+            {% for page_num in pagination.iter_pages() %}
+                {% if page_num %}
+                    {% if page_num != pagination.page %}
+                    <a href="{{ url_for('main.documents', page=page_num, org_id=org_id, category_id=category_id, keyword=keyword, start_date=start_date, end_date=end_date, file=file) }}" class="px-4 py-2 rounded-lg bg-white shadow hover:bg-gray-100">
+                        {{ page_num }}
+                    </a>
+                    {% else %}
+                    <span class="px-4 py-2 rounded-lg bg-blue-600 text-white shadow">
+                        {{ page_num }}
+                    </span>
+                    {% endif %}
+                {% else %}
+                <span class="px-2 py-2">…</span>
+                {% endif %}
+            {% endfor %}
+            
+            {% if pagination.has_next %}
+            <a href="{{ url_for('main.documents', page=pagination.next_num, org_id=org_id, category_id=category_id, keyword=keyword, start_date=start_date, end_date=end_date, file=file) }}" class="px-3 py-2 rounded-lg bg-white shadow hover:bg-gray-100">
+                <i class="fas fa-chevron-right"></i>
+            </a>
+            {% endif %}
+        </nav>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+</style>
+{% endblock %}

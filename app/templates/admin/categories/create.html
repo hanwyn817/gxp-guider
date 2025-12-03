@@ -1,0 +1,13 @@
+{% extends 'admin/model/create.html' %}
+{% block body %}
+  {% set org_name = request.args.get('org_name') %}
+  {% if org_name %}
+  <div class="container-fluid mt-3">
+    <div class="alert alert-info py-2">
+      当前组织：<strong>{{ org_name }}</strong>
+    </div>
+  </div>
+  {% endif %}
+  {{ super() }}
+{% endblock %}
+
