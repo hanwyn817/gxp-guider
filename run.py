@@ -11,4 +11,5 @@ def make_shell_context():
                 Document=Document, DownloadStat=DownloadStat)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # 本地开发可通过 FLASK_ENV=development 启动 debug，生产禁止强制开启
+    app.run(debug=app.config.get('DEBUG', False))

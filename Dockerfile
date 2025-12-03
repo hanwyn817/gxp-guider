@@ -48,6 +48,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # 仅复制运行所需代码
 COPY app app
 COPY scripts scripts
+COPY data data
 COPY run.py config.py logging_config.py start.sh ./
 
 # 创建必要目录与最小权限用户

@@ -5,8 +5,23 @@
 export FLASK_APP=${FLASK_APP:-run.py}
 export FLASK_ENV=${FLASK_ENV:-production}
 
-# 创建必要的目录
-mkdir -p logs data
+# 创建必要的目录并检查可写性（若挂载卷为 root 拥有则提前失败给出提示）
+ensure_writable_dir() {
+  local dir="$1"
+  mkdir -p "$dir" || {
+    echo "[startup] 无法创建目录: $dir" >&2
+    exit 1
+  }
+  local probe="$dir/.write_test.$$"
+  if ! touch "$probe" 2>/dev/null; then
+    echo "[startup] 当前用户无法写入 $dir，请在宿主机执行 'chown -R $(id -u):$(id -g) $dir' 后重试" >&2
+    exit 1
+  fi
+  rm -f "$probe"
+}
+
+ensure_writable_dir logs
+ensure_writable_dir data
 
 # 若使用 SQLite，首启时自动初始化（建表 + 基础数据 + 可用的 CSV 导入）
 # 判断依据：DATABASE_URL 以 sqlite:// 开头，且目标文件不存在或为空
