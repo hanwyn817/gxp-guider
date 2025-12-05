@@ -462,7 +462,8 @@ def init_admin(admin, app):
     admin.add_view(CategoryAdminView(Category, db.session, endpoint='admin_categories'))
     admin.add_view(DocumentAdminView(Document, db.session, endpoint='admin_documents'))
     # 顶部菜单添加导出入口（指向 DocumentAdminView 自带的导出端点）
-    admin.add_link(MenuLink(name='导出文档', url='/admin/admin_documents/export'))
+    admin.add_link(MenuLink(name='导出数据库', url='/admin/admin_documents/export'))
+    admin.add_link(MenuLink(name='导出文档', url='/admin/export-documents'))
     # 下载记录视图已停用
 
 

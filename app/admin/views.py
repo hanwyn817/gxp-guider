@@ -1,4 +1,4 @@
-from flask import Blueprint, request, render_template, jsonify, flash, redirect, url_for, send_file
+from flask import Blueprint, request, render_template, jsonify, flash, redirect, url_for, send_file, after_this_request
 from flask_login import login_required, current_user
 from ..models.document import Document
 from ..models.organization import Organization
@@ -13,9 +13,26 @@ from ..utils.r2 import _get_config, _s3_client, build_public_url, download_to_te
 from ..utils.upload import generate_filename
 from werkzeug.utils import secure_filename
 from flask import current_app
+from flask_admin import helpers as admin_helpers
+import threading
+import time
+import tempfile
+import zipfile
+import uuid
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+# --------- 文档导出任务状态（内存级） ---------
+EXPORT_TASKS: dict = {}
+EXPORT_LOCK = threading.Lock()
+EXPORT_CHUNK_SIZE = 1024 * 1024  # 1MB
+EXPORT_TTL_SECONDS = 60 * 60  # 1 hour
+
+
+class _ExportCancelled(Exception):
+    """Raised when an export task is cancelled."""
+
 
 admin = Blueprint('admin_panel', __name__)
 
@@ -24,6 +41,217 @@ admin = Blueprint('admin_panel', __name__)
 def check_admin():
     if not current_user.is_admin():
         return redirect(url_for('main.index'))
+
+
+def _expire_old_tasks():
+    """清理超时任务及其临时 ZIP。"""
+    now = time.time()
+    to_delete = []
+    with EXPORT_LOCK:
+        for tid, task in list(EXPORT_TASKS.items()):
+            updated = task.get('updated_at') or task.get('created_at') or now
+            if now - updated > EXPORT_TTL_SECONDS and task.get('status') in {'failed', 'cancelled', 'success', 'delivered'}:
+                to_delete.append((tid, task))
+    for tid, task in to_delete:
+        _cleanup_task_file(task)
+        with EXPORT_LOCK:
+            EXPORT_TASKS.pop(tid, None)
+
+
+def _new_export_task():
+    task_id = uuid.uuid4().hex
+    zip_path = os.path.join(tempfile.gettempdir(), f"export-documents-{task_id}.zip")
+    task = {
+        'id': task_id,
+        'status': 'pending',
+        'progress': 0,
+        'message': '等待开始',
+        'created_at': time.time(),
+        'updated_at': time.time(),
+        'paused': False,
+        'cancelled': False,
+        'total_files': 0,
+        'processed_files': 0,
+        'total_bytes': 0,
+        'processed_bytes': 0,
+        'zip_path': zip_path,
+        'download_ready': False,
+    }
+    with EXPORT_LOCK:
+        EXPORT_TASKS[task_id] = task
+    return task
+
+
+def _get_task(task_id: str):
+    with EXPORT_LOCK:
+        return EXPORT_TASKS.get(task_id)
+
+
+def _update_task(task_id: str, **kwargs):
+    with EXPORT_LOCK:
+        task = EXPORT_TASKS.get(task_id)
+        if not task:
+            return None
+        task.update(kwargs)
+        task['updated_at'] = time.time()
+        return dict(task)
+
+
+def _set_paused(task_id: str, paused: bool):
+    status = 'paused' if paused else 'running'
+    message = '任务已暂停' if paused else '继续打包'
+    return _update_task(task_id, paused=paused, status=status, message=message)
+
+
+def _mark_cancel(task_id: str):
+    return _update_task(task_id, cancelled=True, status='cancelling', message='正在取消')
+
+
+def _should_cancel(task_id: str) -> bool:
+    with EXPORT_LOCK:
+        task = EXPORT_TASKS.get(task_id)
+        return (not task) or bool(task.get('cancelled'))
+
+
+def _wait_if_paused(task_id: str) -> bool:
+    """返回 True 表示遇到取消，应终止。"""
+    while True:
+        with EXPORT_LOCK:
+            task = EXPORT_TASKS.get(task_id)
+            if not task:
+                return True
+            paused = task.get('paused', False)
+            cancelled = task.get('cancelled', False)
+        if cancelled:
+            return True
+        if not paused:
+            return False
+        time.sleep(0.3)
+
+
+def _cleanup_task_file(task: dict):
+    path = task.get('zip_path')
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+        except Exception:
+            logger.exception('清理导出 ZIP 失败: %s', path)
+    with EXPORT_LOCK:
+        task['zip_path'] = None
+
+
+def _export_documents_worker(app, task_id: str):
+    """后台线程：遍历 R2 documents/（排除 preview），流式写入 ZIP。"""
+    with app.app_context():
+        task = _get_task(task_id)
+        if not task:
+            return
+        try:
+            client = _s3_client()
+            bucket, *_ = _get_config()
+            prefix = 'documents/'
+            # 列出对象
+            keys = []
+            total_bytes = 0
+            continuation_token = None
+            while True:
+                params = {'Bucket': bucket, 'Prefix': prefix}
+                if continuation_token:
+                    params['ContinuationToken'] = continuation_token
+                resp = client.list_objects_v2(**params)
+                for obj in resp.get('Contents', []):
+                    key = obj.get('Key') or ''
+                    if not key or key.endswith('/'):
+                        continue
+                    if key.startswith(f'{prefix}preview/'):
+                        continue
+                    size = int(obj.get('Size') or 0)
+                    keys.append((key, size))
+                    total_bytes += max(size, 0)
+                if not resp.get('IsTruncated'):
+                    break
+                continuation_token = resp.get('NextContinuationToken')
+
+            if not keys:
+                _update_task(task_id, status='failed', message='没有可导出的文档（已排除 preview）')
+                return
+
+            _update_task(
+                task_id,
+                status='running',
+                message='开始打包...',
+                total_files=len(keys),
+                total_bytes=total_bytes
+            )
+
+            # 确保旧文件不存在
+            zip_path = task.get('zip_path')
+            if zip_path and os.path.exists(zip_path):
+                try:
+                    os.remove(zip_path)
+                except Exception:
+                    logger.exception('删除旧 ZIP 失败: %s', zip_path)
+
+            processed_files = 0
+            processed_bytes = 0
+            os.makedirs(os.path.dirname(zip_path), exist_ok=True)
+            with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+                for key, size in keys:
+                    if _should_cancel(task_id):
+                        raise _ExportCancelled()
+                    if _wait_if_paused(task_id):
+                        raise _ExportCancelled()
+
+                    obj = client.get_object(Bucket=bucket, Key=key)
+                    arcname = key  # 保留完整路径
+                    with zf.open(arcname, 'w') as dest:
+                        body = obj.get('Body')
+                        while True:
+                            chunk = body.read(EXPORT_CHUNK_SIZE)
+                            if not chunk:
+                                break
+                            if _should_cancel(task_id):
+                                raise _ExportCancelled()
+                            if _wait_if_paused(task_id):
+                                raise _ExportCancelled()
+                            dest.write(chunk)
+                            processed_bytes += len(chunk)
+                            progress = min(99, int(processed_bytes * 100 / total_bytes)) if total_bytes else 0
+                            _update_task(
+                                task_id,
+                                processed_bytes=processed_bytes,
+                                progress=progress,
+                                message=f'正在打包 {processed_files + 1}/{len(keys)}'
+                            )
+                    processed_files += 1
+                    progress = int(processed_files * 100 / len(keys))
+                    # 若总字节数更精确，则采用字节进度
+                    if total_bytes and processed_bytes:
+                        progress = min(100, int(processed_bytes * 100 / total_bytes))
+                    _update_task(
+                        task_id,
+                        processed_files=processed_files,
+                        processed_bytes=processed_bytes,
+                        progress=progress,
+                        message=f'已打包 {processed_files}/{len(keys)}'
+                    )
+
+            _update_task(
+                task_id,
+                status='success',
+                progress=100,
+                message='打包完成，可下载',
+                download_ready=True
+            )
+        except _ExportCancelled:
+            task = _get_task(task_id) or {}
+            _cleanup_task_file(task)
+            _update_task(task_id, status='cancelled', message='任务已取消', progress=0, download_ready=False, zip_path=None)
+        except Exception as e:
+            logger.exception('导出文档失败')
+            task = _get_task(task_id) or {}
+            _cleanup_task_file(task)
+            _update_task(task_id, status='failed', message=str(e), download_ready=False, zip_path=None)
 
 @admin.route('/upload', methods=['GET', 'POST'])
 def upload_document():
@@ -472,6 +700,107 @@ def finalize_upload():
         except Exception:
             pass
         return jsonify({'error': str(e)}), 500
+
+
+# --------- 文档导出（R2 -> ZIP） ---------
+@admin.route('/export-documents', methods=['GET'])
+def export_documents_page():
+    """导出文档页面（包含进度弹窗）。"""
+    admin_ext = (current_app.extensions.get('admin') or [])
+    admin_inst = admin_ext[0] if admin_ext else None
+    base_tmpl = getattr(admin_inst, 'base_template', 'admin/master.html')
+    return render_template(
+        'admin/export_documents.html',
+        admin_base_template=base_tmpl,
+        admin_view=getattr(admin_inst, 'index_view', None),
+        h=admin_helpers,
+        helpers=admin_helpers,
+        get_url=admin_helpers.get_url
+    )
+
+
+@admin.route('/export-documents/start', methods=['POST'])
+@csrf.exempt
+def start_export_documents():
+    _expire_old_tasks()
+    task = _new_export_task()
+    task_id = task['id']
+    app_obj = current_app._get_current_object()
+    worker = threading.Thread(target=_export_documents_worker, args=(app_obj, task_id), daemon=True)
+    worker.start()
+    return jsonify({'task_id': task_id, 'status': 'started'})
+
+
+@admin.route('/export-documents/status/<task_id>', methods=['GET'])
+def export_documents_status(task_id):
+    _expire_old_tasks()
+    task = _get_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在或已过期'}), 404
+    data = dict(task)
+    if task.get('download_ready'):
+        data['download_url'] = url_for('admin_panel.download_exported_documents', task_id=task_id)
+    return jsonify(data)
+
+
+@admin.route('/export-documents/pause/<task_id>', methods=['POST'])
+@csrf.exempt
+def pause_export_documents(task_id):
+    task = _get_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+    if task.get('status') not in {'running', 'pending'}:
+        return jsonify({'error': '当前状态不可暂停', 'status': task.get('status')}), 400
+    updated = _set_paused(task_id, True)
+    return jsonify(updated or {'error': '状态更新失败'}), 200
+
+
+@admin.route('/export-documents/resume/<task_id>', methods=['POST'])
+@csrf.exempt
+def resume_export_documents(task_id):
+    task = _get_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+    if not task.get('paused'):
+        return jsonify({'error': '任务未暂停', 'status': task.get('status')}), 400
+    updated = _set_paused(task_id, False)
+    return jsonify(updated or {'error': '状态更新失败'}), 200
+
+
+@admin.route('/export-documents/cancel/<task_id>', methods=['POST'])
+@csrf.exempt
+def cancel_export_documents(task_id):
+    task = _get_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+    if task.get('status') in {'success', 'delivered', 'failed', 'cancelled'}:
+        return jsonify({'error': '当前状态不可取消', 'status': task.get('status')}), 400
+    _mark_cancel(task_id)
+    return jsonify({'status': 'cancelling'})
+
+
+@admin.route('/export-documents/download/<task_id>', methods=['GET'])
+def download_exported_documents(task_id):
+    task = _get_task(task_id)
+    if not task or task.get('status') not in {'success', 'delivered'}:
+        return jsonify({'error': '任务未完成或不存在'}), 404
+    zip_path = task.get('zip_path')
+    if not zip_path or not os.path.exists(zip_path):
+        return jsonify({'error': '导出文件已被清理'}), 404
+
+    @after_this_request
+    def _cleanup(response):
+        try:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        except Exception:
+            logger.exception('下载后清理 ZIP 失败: %s', zip_path)
+        _update_task(task_id, status='delivered', download_ready=False, message='已下载', zip_path=None)
+        return response
+
+    download_name = f'documents-export-{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.zip'
+    return send_file(zip_path, as_attachment=True, download_name=download_name, mimetype='application/zip')
+
 
 @admin.route('/export_documents')
 def export_documents():

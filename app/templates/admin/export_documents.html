@@ -1,0 +1,261 @@
+{% extends admin_base_template or 'admin/master.html' %}
+
+{% block body %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-12">
+            <h1 class="mb-3">导出文档</h1>
+            <p>将 R2 存储桶中 <code>documents/</code>（排除 <code>documents/preview/</code>）的所有文件按原始目录结构打包为 ZIP 并下载。</p>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <button id="btnStartExport" class="btn btn-primary mr-2">开始导出</button>
+                        <button id="btnPauseExport" class="btn btn-outline-secondary mr-2" disabled>暂停</button>
+                        <button id="btnCancelExport" class="btn btn-outline-danger" disabled>取消</button>
+                    </div>
+                    <p class="mb-2"><strong>提示</strong>：打包过程中可随时暂停/继续或取消；成功后可通过下方链接下载 ZIP。</p>
+                    <p class="text-muted mb-1">临时 ZIP 会存放在服务器临时目录（如 /tmp），下载或过期后自动清理。</p>
+                    <div id="downloadArea" class="mt-3" style="display:none;">
+                        <a id="downloadLink" class="btn btn-success" href="#" target="_blank" rel="noopener">下载 ZIP</a>
+                        <span class="text-muted ml-2">若链接失效，可重新发起导出。</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 进度弹窗 -->
+<div class="modal fade" id="exportModal" tabindex="-1" role="dialog" aria-labelledby="exportModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="exportModalLabel">导出进度</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="progress mb-2">
+          <div id="exportProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%">0%</div>
+        </div>
+        <div class="small text-muted" id="exportStatusText">等待开始</div>
+        <div class="small mt-1">
+            <span id="exportDetailText"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="modalPauseResume" type="button" class="btn btn-outline-secondary" disabled>暂停</button>
+        <button id="modalCancel" type="button" class="btn btn-outline-danger" disabled>取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block tail %}
+{{ super() }}
+<script>
+(function() {
+    const startBtn = document.getElementById('btnStartExport');
+    const pauseBtn = document.getElementById('btnPauseExport');
+    const cancelBtn = document.getElementById('btnCancelExport');
+    const modalPauseBtn = document.getElementById('modalPauseResume');
+    const modalCancelBtn = document.getElementById('modalCancel');
+    const progressBar = document.getElementById('exportProgressBar');
+    const statusText = document.getElementById('exportStatusText');
+    const detailText = document.getElementById('exportDetailText');
+    const downloadArea = document.getElementById('downloadArea');
+    const downloadLink = document.getElementById('downloadLink');
+    const modalEl = $('#exportModal');
+
+    let taskId = null;
+    let pollTimer = null;
+    let currentStatus = 'idle';
+
+    function setButtons(state) {
+        const running = state === 'running';
+        const paused = state === 'paused';
+        const working = running || paused;
+        startBtn.disabled = working;
+        pauseBtn.disabled = !working;
+        modalPauseBtn.disabled = !working;
+        cancelBtn.disabled = !working;
+        modalCancelBtn.disabled = !working;
+        pauseBtn.textContent = paused ? '继续' : '暂停';
+        modalPauseBtn.textContent = paused ? '继续' : '暂停';
+    }
+
+    function openModal() {
+        modalEl.modal('show');
+    }
+
+    function closeModalIfFinished() {
+        if (['success', 'failed', 'cancelled', 'delivered'].includes(currentStatus)) {
+            modalEl.modal('hide');
+        }
+    }
+
+    function renderProgress(data) {
+        const progress = Math.max(0, Math.min(100, data.progress || 0));
+        progressBar.style.width = progress + '%';
+        progressBar.textContent = progress + '%';
+        statusText.textContent = data.message || '处理中...';
+        const filesInfo = `${data.processed_files || 0}/${data.total_files || 0} 文件`;
+        const bytesInfo = formatBytes(data.processed_bytes || 0) + ' / ' + formatBytes(data.total_bytes || 0);
+        detailText.textContent = `${filesInfo} · ${bytesInfo}`;
+    }
+
+    function formatBytes(bytes) {
+        if (!bytes) return '0B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let i = 0;
+        let num = bytes;
+        while (num >= 1024 && i < units.length - 1) {
+            num /= 1024;
+            i++;
+        }
+        const fixed = num >= 10 || Number.isInteger(num) ? 0 : 1;
+        return num.toFixed(fixed) + units[i];
+    }
+
+    function startPolling() {
+        clearInterval(pollTimer);
+        pollTimer = setInterval(fetchStatus, 1200);
+    }
+
+    function stopPolling() {
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
+
+    function startExport() {
+        fetch('{{ url_for("admin_panel.start_export_documents") }}', {method: 'POST'})
+            .then(res => res.json())
+            .then(data => {
+                if (data.task_id) {
+                    taskId = data.task_id;
+                    currentStatus = 'running';
+                    setButtons('running');
+                    downloadArea.style.display = 'none';
+                    statusText.textContent = '任务已创建，开始打包...';
+                    openModal();
+                    startPolling();
+                } else {
+                    alert(data.error || '创建任务失败');
+                }
+            })
+            .catch(() => alert('创建任务失败，请稍后重试'));
+    }
+
+    function fetchStatus() {
+        if (!taskId) return;
+        fetch(`{{ url_for("admin_panel.export_documents_status", task_id="__TASK__") }}`.replace('__TASK__', taskId))
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    stopPolling();
+                    currentStatus = 'failed';
+                    statusText.textContent = data.error;
+                    setButtons('idle');
+                    return;
+                }
+                currentStatus = data.status || 'running';
+                renderProgress(data);
+                if (data.status === 'paused') {
+                    setButtons('paused');
+                } else if (data.status === 'running') {
+                    setButtons('running');
+                }
+                if (data.status === 'success' || data.status === 'delivered') {
+                    stopPolling();
+                    setButtons('idle');
+                    downloadArea.style.display = data.download_url ? 'block' : 'none';
+                    if (data.download_url) {
+                        downloadLink.href = data.download_url;
+                    }
+                    statusText.textContent = '打包完成，请点击下载 ZIP';
+                    closeModalIfFinished();
+                } else if (data.status === 'failed') {
+                    stopPolling();
+                    setButtons('idle');
+                    statusText.textContent = data.message || '导出失败';
+                    closeModalIfFinished();
+                } else if (data.status === 'cancelled') {
+                    stopPolling();
+                    setButtons('idle');
+                    statusText.textContent = '任务已取消';
+                    progressBar.style.width = '0%';
+                    progressBar.textContent = '0%';
+                    closeModalIfFinished();
+                }
+            })
+            .catch(() => {
+                stopPolling();
+                currentStatus = 'failed';
+                statusText.textContent = '获取进度失败';
+                setButtons('idle');
+            });
+    }
+
+    function pauseExport() {
+        if (!taskId) return;
+        fetch(`{{ url_for("admin_panel.pause_export_documents", task_id="__TASK__") }}`.replace('__TASK__', taskId), {method: 'POST'})
+            .then(res => res.json())
+            .then(() => {
+                currentStatus = 'paused';
+                setButtons('paused');
+            })
+            .catch(() => alert('暂停失败，请稍后重试'));
+    }
+
+    function resumeExport() {
+        if (!taskId) return;
+        fetch(`{{ url_for("admin_panel.resume_export_documents", task_id="__TASK__") }}`.replace('__TASK__', taskId), {method: 'POST'})
+            .then(res => res.json())
+            .then(() => {
+                currentStatus = 'running';
+                setButtons('running');
+            })
+            .catch(() => alert('继续失败，请稍后重试'));
+    }
+
+    function cancelExport() {
+        if (!taskId) return;
+        fetch(`{{ url_for("admin_panel.cancel_export_documents", task_id="__TASK__") }}`.replace('__TASK__', taskId), {method: 'POST'})
+            .then(() => {
+                currentStatus = 'cancelled';
+                stopPolling();
+                setButtons('idle');
+                statusText.textContent = '任务已取消';
+                progressBar.style.width = '0%';
+                progressBar.textContent = '0%';
+                closeModalIfFinished();
+            })
+            .catch(() => alert('取消失败，请稍后重试'));
+    }
+
+    startBtn.addEventListener('click', startExport);
+    pauseBtn.addEventListener('click', () => {
+        if (currentStatus === 'paused') {
+            resumeExport();
+        } else {
+            pauseExport();
+        }
+    });
+    modalPauseBtn.addEventListener('click', () => {
+        if (currentStatus === 'paused') {
+            resumeExport();
+        } else {
+            pauseExport();
+        }
+    });
+    cancelBtn.addEventListener('click', cancelExport);
+    modalCancelBtn.addEventListener('click', cancelExport);
+})();
+</script>
+{% endblock %}
