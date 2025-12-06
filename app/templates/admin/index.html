@@ -3,32 +3,6 @@
 {% block head_css %}
     {{ super() }}
     <style>
-        .stat-card {
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            transition: transform 0.3s ease;
-            margin-bottom: 20px;
-        }
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-        }
-        .stat-card .card-body {
-            padding: 20px;
-        }
-        .stat-icon {
-            font-size: 2.5rem;
-            opacity: 0.8;
-        }
-        .stat-number {
-            font-size: 2rem;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        .stat-label {
-            font-size: 1rem;
-            opacity: 0.9;
-        }
         .table th {
             border-top: none;
         }
@@ -47,106 +21,6 @@
             <h1>后台管理系统</h1>
             <p class="lead">欢迎来到GMP药指汇后台管理系统</p>
             {# 移除首页导出按钮，保留顶部“导出数据库”菜单 #}
-        </div>
-    </div>
-    
-    <!-- 统计卡片 -->
-    <div class="row">
-        <div class="col-md-4">
-            <div class="card bg-primary text-white stat-card">
-                <div class="card-body text-center">
-                    <div class="stat-icon">👥</div>
-                    <div class="stat-number">{{ user_count }}</div>
-                    <div class="stat-label">用户总数</div>
-                    <div class="small">今日新增: {{ today_users }}</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="card bg-success text-white stat-card">
-                <div class="card-body text-center">
-                    <div class="stat-icon">📚</div>
-                    <div class="stat-number">{{ document_count }}</div>
-                    <div class="stat-label">文档总数</div>
-                    <div class="small">今日新增: {{ today_documents }}</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row mt-4">
-        <!-- 最近注册用户 -->
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5>最近注册用户</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>用户名</th>
-                                <th>邮箱</th>
-                                <th>注册时间</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for user in recent_users %}
-                            <tr>
-                                <td>{{ user.id }}</td>
-                                <td>{{ user.username }}</td>
-                                <td>{{ user.email }}</td>
-                                <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        
-        <!-- 最近上传文档 -->
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5>最近上传文档</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>标题</th>
-                                <th>组织</th>
-                                <th>上传时间</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for document in recent_documents %}
-                            <tr>
-                                <td>{{ document.id }}</td>
-                                <td>{{ document.chinese_title or document.title }}</td>
-                                <td>{{ document.organization.name if document.organization else '' }}</td>
-                                <td>{{ document.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        
-        <!-- 提示 -->
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5>平台提示</h5>
-                </div>
-                <div class="card-body">
-                    <p>当前平台已简化为指南管理与分发，所有文档可直接下载，无需充值或购买。</p>
-                </div>
-            </div>
         </div>
     </div>
     
