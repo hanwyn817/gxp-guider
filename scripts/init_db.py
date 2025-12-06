@@ -161,7 +161,6 @@ def init_organizations(app):
                 Organization(name='FDA Guidance'),
                 Organization(name='EMA'),
                 Organization(name='PIC/S'),
-                Organization(name='ICH'),
                 Organization(name='APIC'),
             ]
             
