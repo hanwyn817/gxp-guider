@@ -92,6 +92,14 @@ def download_to_temp(key: str) -> str:
     return download_to_path(key, tmp_path)
 
 
+def head_object(key: str):
+    """Return object metadata (e.g., ContentLength) for a key."""
+    client = _s3_client()
+    bucket, *_ = _get_config()
+    key = key.lstrip('/')
+    return client.head_object(Bucket=bucket, Key=key)
+
+
 # Helper to generate a SigV4 presigned PUT URL for direct-to-R2 uploads
 def generate_presigned_put_url(key: str, content_type: str = 'application/octet-stream', expires_in: int = 600) -> str:
     """Generate a SigV4 presigned PUT URL for direct-to-R2 uploads.

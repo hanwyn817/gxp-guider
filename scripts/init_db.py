@@ -7,6 +7,7 @@ GxP Guider数据库初始化脚本
 
 import sys
 import os
+import urllib.parse
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,12 +16,19 @@ import csv
 import math
 from datetime import datetime, date
 import argparse
+from dotenv import load_dotenv, find_dotenv
+
+# 预加载 .env（若存在）以便脚本读取 R2 等配置
+_dotenv_path = find_dotenv()
+if _dotenv_path:
+    load_dotenv(_dotenv_path)
 
 # 添加项目路径到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app, db
 from app.models import Organization, Category, User, Document
+from app.utils.r2 import download_to_path, head_object
 
 # 尝试导入openpyxl用于读取Excel文件
 try:
@@ -292,158 +300,265 @@ def init_admin_user(app):
             print("用户数据已存在，跳过添加管理员账户")
 
 
-def import_documents_from_csv(csv_file_path, app, org_name):
-    """通用文档导入函数"""
-    with app.app_context():
-        org = Organization.query.filter_by(name=org_name).first()
-        if not org:
-            print(f"错误: 未找到{org_name}组织")
-            return
-        
-        # 读取价格列表（如果存在）
-        price_dict = load_price_map()
+class LocalModeContext:
+    """Helper for local-mode URL rewrite and download tracking."""
+    def __init__(self, enabled: bool, r2_base: str, local_root: str, has_r2_config: bool):
+        self.enabled = enabled
+        self.r2_base = r2_base.rstrip('/')
+        self.local_root = os.path.abspath(local_root)
+        self.has_r2_config = has_r2_config
+        self.force_skip_head = os.getenv('LOCAL_SKIP_R2_HEAD', '').lower() in ('1', 'true', 'yes')
+        self.tasks = {}  # key -> {"local_path": ..., "url": ...}
 
-        # 读取已导出的文档链接信息（如果存在）
-        # 文件名为 data/documents_export.xlsx
-        excel_link_map = {}
-        export_xlsx_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'documents_export.xlsx')
-        if os.path.exists(export_xlsx_path):
-            if not EXCEL_SUPPORT:
-                print("警告: 检测到 documents_export.xlsx，但未安装openpyxl，无法读取补充链接数据")
-            else:
+    def _extract_key(self, url: str):
+        if not (self.enabled and url):
+            return None
+        parsed = urllib.parse.urlparse(url)
+        base = urllib.parse.urlparse(self.r2_base)
+        if parsed.scheme != base.scheme or parsed.netloc != base.netloc:
+            return None
+        path = parsed.path or ''
+        if path.startswith('/'):
+            path = path[1:]
+        if not path:
+            return None
+        return path
+
+    def rewrite_url(self, url: str):
+        """Rewrite R2 URL to local static path and record download task."""
+        if not (self.enabled and url):
+            return url
+        key = self._extract_key(url)
+        if not key or not key.startswith('documents/'):
+            return url
+        rel_path = key[len('documents/'):]
+        if not rel_path:
+            return url
+        local_path = os.path.join(self.local_root, rel_path)
+        self.tasks[key] = {
+            "local_path": local_path,
+            "url": url or f"{self.r2_base}/{key}"
+        }
+        return f"/static/uploads/documents/{rel_path}"
+
+    def collect_pending_downloads(self):
+        """Return list of (key, local_path) needing download/refresh."""
+        if not self.enabled:
+            return []
+        pending = []
+        total_tasks = len(self.tasks)
+        skip_head = self.force_skip_head
+        if self.has_r2_config and not skip_head and total_tasks > 200:
+            print(f"提示：共 {total_tasks} 个文件，数量较大，跳过 R2 HEAD 校验，直接按本地缺失判断。若需严格校验，可设置 LOCAL_SKIP_R2_HEAD=false 并分批导入。")
+            skip_head = True
+        for key, info in self.tasks.items():
+            local_path = info["local_path"]
+            need = False
+            r2_size = None
+            if self.has_r2_config and not skip_head:
                 try:
-                    wb = openpyxl.load_workbook(export_xlsx_path)
-                    ws = wb.active
-                    # 读取表头
-                    headers = [str(c.value).strip() if c.value is not None else '' for c in next(ws.iter_rows(min_row=1, max_row=1))]
-                    # 映射所需列索引
-                    def col_idx(name):
-                        try:
-                            return headers.index(name)
-                        except ValueError:
-                            return None
-
-                    idx_title = col_idx('英文标题')
-                    idx_ori_file = col_idx('原版文档链接')
-                    idx_chn_file = col_idx('中文版文档链接')
-                    idx_ori_prev = col_idx('原版预览链接')
-                    idx_chn_prev = col_idx('中文版预览链接')
-
-                    if idx_title is None:
-                        print("警告: documents_export.xlsx 缺少 '英文标题' 列，无法匹配标题")
-                    else:
-                        for row in ws.iter_rows(min_row=2, values_only=True):
-                            if not row:
-                                continue
-                            title_val = row[idx_title] if idx_title is not None and idx_title < len(row) else None
-                            if not title_val:
-                                continue
-                            title_key = str(title_val).strip()
-                            if not title_key:
-                                continue
-                            def safe_get(i):
-                                if i is None or i >= len(row):
-                                    return None
-                                v = row[i]
-                                return str(v).strip() if v is not None else None
-                            excel_link_map[title_key] = {
-                                'original_file_url': safe_get(idx_ori_file),
-                                'translation_file_url': safe_get(idx_chn_file),
-                                'original_preview_url': safe_get(idx_ori_prev),
-                                'translation_preview_url': safe_get(idx_chn_prev),
-                            }
+                    meta = head_object(key)
+                    r2_size = meta.get('ContentLength')
                 except Exception as e:
-                    print(f"读取 documents_export.xlsx 文件时出错: {e}")
+                    need = True
+            if not os.path.exists(local_path):
+                need = True
+            else:
+                if r2_size is not None:
+                    local_size = os.path.getsize(local_path)
+                    if local_size != r2_size:
+                        need = True
+            if need:
+                pending.append((key, local_path, info["url"]))
+        return pending
 
-        # 检查CSV文件是否存在
-        if not os.path.exists(csv_file_path):
-            print(f"警告: {org_name} CSV文件不存在 {csv_file_path}")
+    def download_all(self, tasks):
+        """Download tasks from R2 to local paths."""
+        # prefer R2 SDK when配置完整，否则直接 HTTP 下载
+        if not tasks:
             return
+        use_r2 = self.has_r2_config
+        total = len(tasks)
+        for idx, (key, local_path, url) in enumerate(tasks, start=1):
+            print(f"[下载] {idx}/{total} -> {local_path}")
+            try:
+                if use_r2:
+                    download_to_path(key, local_path)
+                else:
+                    import requests
+                    resp = requests.get(url, stream=True, timeout=30)
+                    resp.raise_for_status()
+                    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                    with open(local_path, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+            except Exception as e:
+                raise RuntimeError(f"下载失败 {key} -> {local_path}: {e}")
+
+
+def _missing_r2_config(app):
+    """Check required R2 config keys."""
+    required = ['R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT_URL']
+    return [k for k in required if not app.config.get(k)]
+
+
+def import_documents_from_csv(csv_file_path, app, org_name, *, local_ctx: LocalModeContext | None = None, commit: bool = True):
+    """通用文档导入函数"""
+    org = Organization.query.filter_by(name=org_name).first()
+    if not org:
+        print(f"错误: 未找到{org_name}组织")
+        return
+    
+    # 读取价格列表（如果存在）
+    price_dict = load_price_map()
+
+    # 读取已导出的文档链接信息（如果存在）
+    # 文件名为 data/documents_export.xlsx
+    excel_link_map = {}
+    export_xlsx_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'documents_export.xlsx')
+    if os.path.exists(export_xlsx_path):
+        if not EXCEL_SUPPORT:
+            print("警告: 检测到 documents_export.xlsx，但未安装openpyxl，无法读取补充链接数据")
+        else:
+            try:
+                wb = openpyxl.load_workbook(export_xlsx_path)
+                ws = wb.active
+                # 读取表头
+                headers = [str(c.value).strip() if c.value is not None else '' for c in next(ws.iter_rows(min_row=1, max_row=1))]
+                # 映射所需列索引
+                def col_idx(name):
+                    try:
+                        return headers.index(name)
+                    except ValueError:
+                        return None
+
+                idx_title = col_idx('英文标题')
+                idx_ori_file = col_idx('原版文档链接')
+                idx_chn_file = col_idx('中文版文档链接')
+                idx_ori_prev = col_idx('原版预览链接')
+                idx_chn_prev = col_idx('中文版预览链接')
+
+                if idx_title is None:
+                    print("警告: documents_export.xlsx 缺少 '英文标题' 列，无法匹配标题")
+                else:
+                    for row in ws.iter_rows(min_row=2, values_only=True):
+                        if not row:
+                            continue
+                        title_val = row[idx_title] if idx_title is not None and idx_title < len(row) else None
+                        if not title_val:
+                            continue
+                        title_key = str(title_val).strip()
+                        if not title_key:
+                            continue
+                        def safe_get(i):
+                            if i is None or i >= len(row):
+                                return None
+                            v = row[i]
+                            return str(v).strip() if v is not None else None
+                        excel_link_map[title_key] = {
+                            'original_file_url': safe_get(idx_ori_file),
+                            'translation_file_url': safe_get(idx_chn_file),
+                            'original_preview_url': safe_get(idx_ori_prev),
+                            'translation_preview_url': safe_get(idx_chn_prev),
+                        }
+            except Exception as e:
+                print(f"读取 documents_export.xlsx 文件时出错: {e}")
+
+    # 检查CSV文件是否存在
+    if not os.path.exists(csv_file_path):
+        print(f"警告: {org_name} CSV文件不存在 {csv_file_path}")
+        return
+    
+    # 读取CSV文件
+    with open(csv_file_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        imported_count = 0
+        skipped_count = 0
         
-        # 读取CSV文件
-        with open(csv_file_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            imported_count = 0
-            skipped_count = 0
+        for row in reader:
+            # 检查文档是否已存在
+            existing_doc = Document.query.filter_by(title=row['title'].strip()).first()
+            if existing_doc:
+                skipped_count += 1
+                continue
             
-            for row in reader:
-                # 检查文档是否已存在
-                existing_doc = Document.query.filter_by(title=row['title'].strip()).first()
-                if existing_doc:
-                    skipped_count += 1
-                    continue
-                
-                # 查找分类（可选）
-                category = None
-                if row.get('category') and row['category'].strip():
-                    category = Category.query.filter_by(name=row['category'].strip(), org_id=org.id).first()
-                
-                # 解析日期
-                publish_date = parse_date_any(row.get('publish_date', '').strip() if row.get('publish_date') else None)
-                
-                # 获取价格信息
-                title = row['title'].strip()
-                price = int(price_dict.get(title, 0))  # 默认价格为0
-
-                # 从CSV读取文件与预览链接；缺失时尝试用Excel补全
-                csv_original_file_url = (row.get('original_file_url') or '').strip()
-                csv_translation_file_url = (row.get('translation_file_url') or '').strip()
-                csv_original_preview_url = (row.get('original_preview_url') or '').strip()
-                csv_translation_preview_url = (row.get('translation_preview_url') or '').strip()
-
-                # 默认使用CSV中的值
-                original_file_url = csv_original_file_url or None
-                translation_file_url = csv_translation_file_url or None
-                original_preview_url = csv_original_preview_url or None
-                translation_preview_url = csv_translation_preview_url or None
-
-                # 如果为空且Excel有对应标题，则使用Excel中的值
-                link_row = excel_link_map.get(title)
-                if link_row:
-                    if not original_file_url:
-                        v = (link_row.get('original_file_url') or '').strip() if link_row.get('original_file_url') else None
-                        original_file_url = v or original_file_url
-                    if not translation_file_url:
-                        v = (link_row.get('translation_file_url') or '').strip() if link_row.get('translation_file_url') else None
-                        translation_file_url = v or translation_file_url
-                    if not original_preview_url:
-                        v = (link_row.get('original_preview_url') or '').strip() if link_row.get('original_preview_url') else None
-                        original_preview_url = v or original_preview_url
-                    if not translation_preview_url:
-                        v = (link_row.get('translation_preview_url') or '').strip() if link_row.get('translation_preview_url') else None
-                        translation_preview_url = v or translation_preview_url
-                
-                # 创建文档对象（完全统一的字段处理）
-                doc = Document(
-                    title=title,
-                    chinese_title=row.get('chinese_title', '').strip() or None,
-                    summary=row.get('summary', '').strip() or None,
-                    chinese_summary=row.get('chinese_summary', '').strip() or None,
-                    org_id=org.id,
-                    category_id=category.id if category else None,
-                    cover_url=row.get('cover_url', '').strip() or None,
-                    publish_date=publish_date,
-                    source_url=row.get('source_url', '').strip() or None,
-                    original_file_url=original_file_url,
-                    translation_file_url=translation_file_url,
-                    original_preview_url=original_preview_url,
-                    translation_preview_url=translation_preview_url,
-                    price=price
-                )
-                
-                db.session.add(doc)
-                imported_count += 1
-                
-                # 每100条记录提交一次
-                if imported_count % 100 == 0:
-                    db.session.commit()
+            # 查找分类（可选）
+            category = None
+            if row.get('category') and row['category'].strip():
+                category = Category.query.filter_by(name=row['category'].strip(), org_id=org.id).first()
             
-            # 提交剩余记录
+            # 解析日期
+            publish_date = parse_date_any(row.get('publish_date', '').strip() if row.get('publish_date') else None)
+            
+            # 获取价格信息
+            title = row['title'].strip()
+            price = int(price_dict.get(title, 0))  # 默认价格为0
+
+            # 从CSV读取文件与预览链接；缺失时尝试用Excel补全
+            csv_original_file_url = (row.get('original_file_url') or '').strip()
+            csv_translation_file_url = (row.get('translation_file_url') or '').strip()
+            csv_original_preview_url = (row.get('original_preview_url') or '').strip()
+            csv_translation_preview_url = (row.get('translation_preview_url') or '').strip()
+
+            # 默认使用CSV中的值
+            def rewrite(url):
+                u = url or None
+                return local_ctx.rewrite_url(u) if local_ctx else u
+
+            original_file_url = rewrite(csv_original_file_url)
+            translation_file_url = rewrite(csv_translation_file_url)
+            original_preview_url = rewrite(csv_original_preview_url)
+            translation_preview_url = rewrite(csv_translation_preview_url)
+
+            # 如果为空且Excel有对应标题，则使用Excel中的值
+            link_row = excel_link_map.get(title)
+            if link_row:
+                if not original_file_url:
+                    v = (link_row.get('original_file_url') or '').strip() if link_row.get('original_file_url') else None
+                    original_file_url = rewrite(v) or original_file_url
+                if not translation_file_url:
+                    v = (link_row.get('translation_file_url') or '').strip() if link_row.get('translation_file_url') else None
+                    translation_file_url = rewrite(v) or translation_file_url
+                if not original_preview_url:
+                    v = (link_row.get('original_preview_url') or '').strip() if link_row.get('original_preview_url') else None
+                    original_preview_url = rewrite(v) or original_preview_url
+                if not translation_preview_url:
+                    v = (link_row.get('translation_preview_url') or '').strip() if link_row.get('translation_preview_url') else None
+                    translation_preview_url = rewrite(v) or translation_preview_url
+            
+            # 创建文档对象（完全统一的字段处理）
+            doc = Document(
+                title=title,
+                chinese_title=row.get('chinese_title', '').strip() or None,
+                summary=row.get('summary', '').strip() or None,
+                chinese_summary=row.get('chinese_summary', '').strip() or None,
+                org_id=org.id,
+                category_id=category.id if category else None,
+                cover_url=row.get('cover_url', '').strip() or None,
+                publish_date=publish_date,
+                source_url=row.get('source_url', '').strip() or None,
+                original_file_url=original_file_url,
+                translation_file_url=translation_file_url,
+                original_preview_url=original_preview_url,
+                translation_preview_url=translation_preview_url,
+                price=price
+            )
+            
+            db.session.add(doc)
+            imported_count += 1
+            
+            # 每100条记录提交一次
+            if commit and imported_count % 100 == 0:
+                db.session.commit()
+        
+        # 提交剩余记录
+        if commit:
             db.session.commit()
-            print(f"{org_name}文档导入完成: 成功导入 {imported_count} 条记录，跳过 {skipped_count} 条记录")
+        print(f"{org_name}文档导入完成: 成功导入 {imported_count} 条记录，跳过 {skipped_count} 条记录")
 
 
-def import_documents_from_excel(excel_path, app, org_filter=None, upsert=False, dry_run=False):
+def import_documents_from_excel(excel_path, app, org_filter=None, upsert=False, dry_run=False, *, local_ctx: LocalModeContext | None = None, commit: bool = True):
     """从 Excel 文件导入文档（优先数据源）
 
     列要求（严格匹配中文列名，自动去空格）：
@@ -463,219 +578,222 @@ def import_documents_from_excel(excel_path, app, org_filter=None, upsert=False, 
     def norm_col(v):
         return (str(v).strip() if v is not None else '')
 
-    with app.app_context():
+    try:
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+    except Exception as e:
+        print(f"读取 Excel 失败: {e}")
+        return
+
+    header_cells = next(ws.iter_rows(min_row=1, max_row=1))
+    headers = [norm_col(c.value) for c in header_cells]
+    header_index = {h: i for i, h in enumerate(headers)}
+
+    required_cols = [
+        '组织', '分类', '英文标题', '中文标题', '概述', '中文概述', '封面链接', '出版日期',
+        '源链接', '原版文档链接', '中文版文档链接', '原版预览链接', '中文版预览链接', '价格', '创建时间', '更新时间'
+    ]
+    # 仅“英文标题”为必需；其余缺失可为空
+    if '英文标题' not in header_index:
+        print("错误: Excel 缺少必需列 ‘英文标题’")
+        return
+
+    imported = 0
+    updated = 0
+    skipped = 0
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        # 读取列值并规范化
+        def get(col):
+            idx = header_index.get(col)
+            if idx is None or idx >= len(row):
+                return None
+            return row[idx]
+
+        org_name = _strip(get('组织'))
+        cat_name = _strip(get('分类'))
+        title = _strip(get('英文标题'))
+        if not title:
+            skipped += 1
+            continue
+
+        if org_filter and org_name != org_filter:
+            continue
+
+        chinese_title = _strip(get('中文标题'))
+        summary = _strip(get('概述'))
+        chinese_summary = _strip(get('中文概述'))
+        cover_url = _strip(get('封面链接'))
+        publish_date = parse_date_any(get('出版日期'))
+        source_url = _strip(get('源链接'))
+        def rewrite(url):
+            u = _strip(url)
+            return local_ctx.rewrite_url(u) if local_ctx else u
+
+        original_file_url = rewrite(get('原版文档链接'))
+        translation_file_url = rewrite(get('中文版文档链接'))
+        original_preview_url = rewrite(get('原版预览链接'))
+        translation_preview_url = rewrite(get('中文版预览链接'))
+
+        # 价格：优先 Excel，否则 price_list.xlsx，否则 0；向下取整
+        price_val = get('价格')
+        price = None
         try:
-            wb = openpyxl.load_workbook(excel_path)
-            ws = wb.active
-        except Exception as e:
-            print(f"读取 Excel 失败: {e}")
-            return
+            if price_val is not None and str(price_val).strip() != '':
+                price = int(math.floor(float(price_val)))
+        except Exception:
+            price = None
+        if price is None:
+            price = int(price_map.get(title, 0))
 
-        header_cells = next(ws.iter_rows(min_row=1, max_row=1))
-        headers = [norm_col(c.value) for c in header_cells]
-        header_index = {h: i for i, h in enumerate(headers)}
+        created_at = parse_datetime_any(get('创建时间'))
+        updated_at = parse_datetime_any(get('更新时间'))
 
-        required_cols = [
-            '组织', '分类', '英文标题', '中文标题', '概述', '中文概述', '封面链接', '出版日期',
-            '源链接', '原版文档链接', '中文版文档链接', '原版预览链接', '中文版预览链接', '价格', '创建时间', '更新时间'
-        ]
-        # 仅“英文标题”为必需；其余缺失可为空
-        if '英文标题' not in header_index:
-            print("错误: Excel 缺少必需列 ‘英文标题’")
-            return
+        # 组织与分类按需创建（dry-run 下只查询不创建）
+        if dry_run:
+            org = Organization.query.filter_by(name=org_name).first() if org_name else None
+            category = Category.query.filter_by(name=cat_name, org_id=org.id if org else None).first() if (org and cat_name) else None
+        else:
+            org = get_or_create_org(org_name) if org_name else None
+            category = get_or_create_category(org.id, cat_name) if (org and cat_name) else None
 
-        imported = 0
-        updated = 0
-        skipped = 0
-
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            # 读取列值并规范化
-            def get(col):
-                idx = header_index.get(col)
-                if idx is None or idx >= len(row):
-                    return None
-                return row[idx]
-
-            org_name = _strip(get('组织'))
-            cat_name = _strip(get('分类'))
-            title = _strip(get('英文标题'))
-            if not title:
+        existing = Document.query.filter_by(title=title).first()
+        if existing:
+            if not upsert:
                 skipped += 1
                 continue
-
-            if org_filter and org_name != org_filter:
-                continue
-
-            chinese_title = _strip(get('中文标题'))
-            summary = _strip(get('概述'))
-            chinese_summary = _strip(get('中文概述'))
-            cover_url = _strip(get('封面链接'))
-            publish_date = parse_date_any(get('出版日期'))
-            source_url = _strip(get('源链接'))
-            original_file_url = _strip(get('原版文档链接'))
-            translation_file_url = _strip(get('中文版文档链接'))
-            original_preview_url = _strip(get('原版预览链接'))
-            translation_preview_url = _strip(get('中文版预览链接'))
-
-            # 价格：优先 Excel，否则 price_list.xlsx，否则 0；向下取整
-            price_val = get('价格')
-            price = None
-            try:
-                if price_val is not None and str(price_val).strip() != '':
-                    price = int(math.floor(float(price_val)))
-            except Exception:
-                price = None
-            if price is None:
-                price = int(price_map.get(title, 0))
-
-            created_at = parse_datetime_any(get('创建时间'))
-            updated_at = parse_datetime_any(get('更新时间'))
-
-            # 组织与分类按需创建（dry-run 下只查询不创建）
             if dry_run:
-                org = Organization.query.filter_by(name=org_name).first() if org_name else None
-                category = Category.query.filter_by(name=cat_name, org_id=org.id if org else None).first() if (org and cat_name) else None
+                updated += 1
             else:
-                org = get_or_create_org(org_name) if org_name else None
-                category = get_or_create_category(org.id, cat_name) if (org and cat_name) else None
-
-            existing = Document.query.filter_by(title=title).first()
-            if existing:
-                if not upsert:
-                    skipped += 1
-                    continue
-                if dry_run:
-                    updated += 1
-                else:
-                    # upsert：非空覆盖
-                    if org:
-                        existing.org_id = org.id
-                    if category:
-                        existing.category_id = category.id
-                    if chinese_title is not None:
-                        existing.chinese_title = chinese_title
-                    if summary is not None:
-                        existing.summary = summary
-                    if chinese_summary is not None:
-                        existing.chinese_summary = chinese_summary
-                    if cover_url is not None:
-                        existing.cover_url = cover_url
-                    if publish_date is not None:
-                        existing.publish_date = publish_date
-                    if source_url is not None:
-                        existing.source_url = source_url
-                    if original_file_url is not None:
-                        existing.original_file_url = original_file_url
-                    if translation_file_url is not None:
-                        existing.translation_file_url = translation_file_url
-                    if original_preview_url is not None:
-                        existing.original_preview_url = original_preview_url
-                    if translation_preview_url is not None:
-                        existing.translation_preview_url = translation_preview_url
-                    if price is not None:
-                        existing.price = int(price)
-                    if created_at is not None:
-                        existing.created_at = created_at
-                    if updated_at is not None:
-                        existing.updated_at = updated_at
-                    updated += 1
+                # upsert：非空覆盖
+                if org:
+                    existing.org_id = org.id
+                if category:
+                    existing.category_id = category.id
+                if chinese_title is not None:
+                    existing.chinese_title = chinese_title
+                if summary is not None:
+                    existing.summary = summary
+                if chinese_summary is not None:
+                    existing.chinese_summary = chinese_summary
+                if cover_url is not None:
+                    existing.cover_url = cover_url
+                if publish_date is not None:
+                    existing.publish_date = publish_date
+                if source_url is not None:
+                    existing.source_url = source_url
+                if original_file_url is not None:
+                    existing.original_file_url = original_file_url
+                if translation_file_url is not None:
+                    existing.translation_file_url = translation_file_url
+                if original_preview_url is not None:
+                    existing.original_preview_url = original_preview_url
+                if translation_preview_url is not None:
+                    existing.translation_preview_url = translation_preview_url
+                if price is not None:
+                    existing.price = int(price)
+                if created_at is not None:
+                    existing.created_at = created_at
+                if updated_at is not None:
+                    existing.updated_at = updated_at
+                updated += 1
+        else:
+            if dry_run:
+                imported += 1
             else:
-                if dry_run:
-                    imported += 1
-                else:
-                    doc = Document(
-                        title=title,
-                        chinese_title=chinese_title,
-                        summary=summary,
-                        chinese_summary=chinese_summary,
-                        org_id=org.id if org else None,
-                        category_id=category.id if category else None,
-                        cover_url=cover_url,
-                        publish_date=publish_date,
-                        source_url=source_url,
-                        original_file_url=original_file_url,
-                        translation_file_url=translation_file_url,
-                        original_preview_url=original_preview_url,
-                        translation_preview_url=translation_preview_url,
-                        price=int(price) if price is not None else 0,
-                    )
-                    if created_at is not None:
-                        doc.created_at = created_at
-                    if updated_at is not None:
-                        doc.updated_at = updated_at
-                    db.session.add(doc)
-                    imported += 1
+                doc = Document(
+                    title=title,
+                    chinese_title=chinese_title,
+                    summary=summary,
+                    chinese_summary=chinese_summary,
+                    org_id=org.id if org else None,
+                    category_id=category.id if category else None,
+                    cover_url=cover_url,
+                    publish_date=publish_date,
+                    source_url=source_url,
+                    original_file_url=original_file_url,
+                    translation_file_url=translation_file_url,
+                    original_preview_url=original_preview_url,
+                    translation_preview_url=translation_preview_url,
+                    price=int(price) if price is not None else 0,
+                )
+                if created_at is not None:
+                    doc.created_at = created_at
+                if updated_at is not None:
+                    doc.updated_at = updated_at
+                db.session.add(doc)
+                imported += 1
 
-            # 分批提交
-            total = imported + updated
-            if not dry_run and total > 0 and total % 100 == 0:
-                db.session.commit()
-
-        if not dry_run:
+        # 分批提交
+        total = imported + updated
+        if commit and not dry_run and total > 0 and total % 100 == 0:
             db.session.commit()
-        print(f"Excel 导入完成: 新增 {imported}，更新 {updated}，跳过 {skipped}")
 
-def import_pda_documents_from_csv(csv_file_path, app):
+    if commit and not dry_run:
+        db.session.commit()
+    print(f"Excel 导入完成: 新增 {imported}，更新 {updated}，跳过 {skipped}")
+
+def import_pda_documents_from_csv(csv_file_path, app, *, local_ctx=None, commit=True):
     """从PDA CSV文件导入文档数据"""
-    return import_documents_from_csv(csv_file_path, app, 'PDA')
+    return import_documents_from_csv(csv_file_path, app, 'PDA', local_ctx=local_ctx, commit=commit)
 
-def import_who_documents_from_csv(csv_file_path, app):
+def import_who_documents_from_csv(csv_file_path, app, *, local_ctx=None, commit=True):
     """从WHO CSV文件导入文档数据"""
-    return import_documents_from_csv(csv_file_path, app, 'WHO')
+    return import_documents_from_csv(csv_file_path, app, 'WHO', local_ctx=local_ctx, commit=commit)
 
-def import_ispe_documents_from_csv(csv_file_path, app):
+def import_ispe_documents_from_csv(csv_file_path, app, *, local_ctx=None, commit=True):
     """从ISPE CSV文件导入文档数据"""
-    return import_documents_from_csv(csv_file_path, app, 'ISPE')
+    return import_documents_from_csv(csv_file_path, app, 'ISPE', local_ctx=local_ctx, commit=commit)
 
-def import_fda_guidance_documents_from_csv(csv_file_path, app):
+def import_fda_guidance_documents_from_csv(csv_file_path, app, *, local_ctx=None, commit=True):
     """从FDA Guidance CSV文件导入文档数据"""
-    return import_documents_from_csv(csv_file_path, app, 'FDA Guidance')
+    return import_documents_from_csv(csv_file_path, app, 'FDA Guidance', local_ctx=local_ctx, commit=commit)
 
-def import_apic_documents_from_csv(csv_file_path, app):
+def import_apic_documents_from_csv(csv_file_path, app, *, local_ctx=None, commit=True):
     """从APIC CSV文件导入文档数据"""
-    return import_documents_from_csv(csv_file_path, app, 'APIC')
+    return import_documents_from_csv(csv_file_path, app, 'APIC', local_ctx=local_ctx, commit=commit)
 
-def import_all_documents(app):
+def import_all_documents(app, *, local_ctx=None, commit=True):
     """导入所有文档"""
     print("开始导入PDA文档...")
     pda_csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'pda_documents.csv')
     if os.path.exists(pda_csv_path):
-        import_pda_documents_from_csv(pda_csv_path, app)
+        import_pda_documents_from_csv(pda_csv_path, app, local_ctx=local_ctx, commit=commit)
     else:
         print(f"警告: PDA CSV文件不存在 {pda_csv_path}")
     
     print("开始导入WHO文档...")
     who_csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'who_documents.csv')
     if os.path.exists(who_csv_path):
-        import_who_documents_from_csv(who_csv_path, app)
+        import_who_documents_from_csv(who_csv_path, app, local_ctx=local_ctx, commit=commit)
     else:
         print(f"警告: WHO CSV文件不存在 {who_csv_path}")
     
     print("开始导入ISPE文档...")
     ispe_csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'ispe_documents.csv')
     if os.path.exists(ispe_csv_path):
-        import_ispe_documents_from_csv(ispe_csv_path, app)
+        import_ispe_documents_from_csv(ispe_csv_path, app, local_ctx=local_ctx, commit=commit)
     else:
         print(f"警告: ISPE CSV文件不存在 {ispe_csv_path}")
     
     print("开始导入FDA Guidance文档...")
     fda_csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'fda_guidance_documents.csv')
     if os.path.exists(fda_csv_path):
-        import_fda_guidance_documents_from_csv(fda_csv_path, app)
+        import_fda_guidance_documents_from_csv(fda_csv_path, app, local_ctx=local_ctx, commit=commit)
     else:
         print(f"警告: FDA Guidance CSV文件不存在 {fda_csv_path}")
     
     print("开始导入APIC文档...")
     apic_csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'apic_documents.csv')
     if os.path.exists(apic_csv_path):
-        import_apic_documents_from_csv(apic_csv_path, app)
+        import_apic_documents_from_csv(apic_csv_path, app, local_ctx=local_ctx, commit=commit)
     else:
         print(f"警告: APIC CSV文件不存在 {apic_csv_path}")
     
     print("所有文档导入完成")
 
 
-def import_all_documents_auto(app, source='auto', org_filter=None, upsert=False, dry_run=False):
+def import_all_documents_auto(app, source='auto', org_filter=None, upsert=False, dry_run=False, *, local_ctx=None, commit=True):
     """根据来源选择导入（优先 Excel）"""
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
     xlsx = os.path.join(data_dir, 'documents_export.xlsx')
@@ -690,33 +808,70 @@ def import_all_documents_auto(app, source='auto', org_filter=None, upsert=False,
         if not can_excel():
             print("警告: 选择了 Excel 但不满足条件（缺文件或无 openpyxl），降级为 CSV")
         else:
-            return import_documents_from_excel(xlsx, app, org_filter=org_filter, upsert=upsert, dry_run=dry_run)
+            return import_documents_from_excel(xlsx, app, org_filter=org_filter, upsert=upsert, dry_run=dry_run, local_ctx=local_ctx, commit=commit)
 
     # CSV 路径导入（保持原逻辑）
-    return import_all_documents(app)
+    return import_all_documents(app, local_ctx=local_ctx, commit=commit)
 
-def init_db_comprehensive(source='auto', org_filter=None, upsert=False, dry_run=False):
+def init_db_comprehensive(source='auto', org_filter=None, upsert=False, dry_run=False, *, local_mode=False, local_root=None, r2_base=None):
     """完整初始化数据库"""
     # 创建应用实例（遵循与 run.py 一致的配置选择）
     # 优先使用环境变量 FLASK_ENV 指定的配置，否则回落到默认配置
     app = create_app(os.getenv('FLASK_ENV') or 'default')
-    
-    print("开始初始化数据库...")
-    init_db(app)
-    
-    print("开始初始化组织...")
-    init_organizations(app)
-    
-    print("开始初始化分类...")
-    init_categories(app)
-    
-    print("开始初始化管理员账户...")
-    init_admin_user(app)
-    
-    print("开始导入文档...")
-    import_all_documents_auto(app, source=source, org_filter=org_filter, upsert=upsert, dry_run=dry_run)
-    
-    print("数据库完整初始化完成")
+    default_local_root = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app', 'static', 'uploads', 'documents'))
+    local_root = local_root or default_local_root
+    r2_base = r2_base or "https://gmp-guidelines.wen817.com"
+    missing = _missing_r2_config(app)
+    local_ctx = LocalModeContext(local_mode, r2_base, local_root, has_r2_config=(len(missing) == 0))
+    commit_immediately = not local_mode
+
+    with app.app_context():
+        print("开始初始化数据库...")
+        init_db(app)
+        
+        print("开始初始化组织...")
+        init_organizations(app)
+        
+        print("开始初始化分类...")
+        init_categories(app)
+        
+        print("开始初始化管理员账户...")
+        init_admin_user(app)
+        
+        print("开始导入文档...")
+        import_all_documents_auto(
+            app,
+            source=source,
+            org_filter=org_filter,
+            upsert=upsert,
+            dry_run=dry_run,
+            local_ctx=local_ctx if local_mode else None,
+            commit=commit_immediately
+        )
+
+        # 本地模式下，提示并同步文件后再提交
+        if local_mode and not dry_run:
+            tasks = local_ctx.collect_pending_downloads()
+            print(f"本地模式启用，R2 基础域名: {r2_base}")
+            print(f"本地文档根目录: {local_root}")
+            print(f"需要下载/更新的文件数量: {len(tasks)}")
+            if missing:
+                print(f"提示：缺少 R2 配置({', '.join(missing)} )，将使用公开 URL 直接下载，不校验 R2 文件大小。")
+            if tasks:
+                resp = input("是否继续下载并完成初始化？[y/N]: ").strip().lower()
+                if resp != 'y':
+                    db.session.rollback()
+                    print("用户取消下载，初始化已中断，未写入文档数据。")
+                    return
+                try:
+                    local_ctx.download_all(tasks)
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"下载出错，初始化已回滚: {e}")
+                    return
+            db.session.commit()
+        
+        print("数据库完整初始化完成")
 
 
 def import_new_documents():
@@ -736,6 +891,17 @@ if __name__ == '__main__':
         parser.add_argument('--org', dest='org_filter', default=None, help='仅导入指定组织（与 Excel/CSV 皆可配合）')
         parser.add_argument('--upsert', action='store_true', help='遇到已存在标题时更新（默认跳过）')
         parser.add_argument('--dry-run', action='store_true', help='仅统计与校验，不写入数据库')
+        parser.add_argument('--local-mode', action='store_true', help='启用本地模式：将 R2 链接改写为本地相对路径并同步文件')
+        parser.add_argument('--local-root', default=None, help='本地模式下的文档根目录（默认 app/static/uploads/documents）')
+        parser.add_argument('--r2-base', default=None, help='R2 公网访问域名（用于识别与改写链接），默认 https://gmp-guidelines.wen817.com')
         args = parser.parse_args()
 
-        init_db_comprehensive(source=args.source, org_filter=args.org_filter, upsert=args.upsert, dry_run=args.dry_run)
+        init_db_comprehensive(
+            source=args.source,
+            org_filter=args.org_filter,
+            upsert=args.upsert,
+            dry_run=args.dry_run,
+            local_mode=args.local_mode,
+            local_root=args.local_root,
+            r2_base=args.r2_base
+        )

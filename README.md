@@ -188,6 +188,11 @@ ID、组织、分类、英文标题、中文标题、概述、中文概述、封
   - `uv run python scripts/init_db.py --upsert`
 - 仅校验不写库：
   - `uv run python scripts/init_db.py --dry-run --source excel --org PDA`
+- 本地模式（用本地文件替换 R2 链接，并在导入时自动校验/下载缺失文件）：
+  - `uv run python scripts/init_db.py --local-mode`
+  - 可自定义本地根目录与 R2 域名：`uv run python scripts/init_db.py --local-mode --local-root ./app/static/uploads/documents --r2-base https://gmp-guidelines.wen817.com`
+  - 运行时会统计需要下载/更新的文件数量，提示 `是否继续下载并完成初始化？[y/N]:`，输入 `y` 后才会从 R2 下载到本地并提交数据，否则中断且回滚。
+  - 本地存储结构沿用上传回退路径：`app/static/uploads/documents/{org}/{file}` 与 `app/static/uploads/documents/preview/{org}/{yyyymmdd}/{uuid}.pdf`，请先从 R2 同步文件到对应目录结构。
 
 增量导入：
 
@@ -244,6 +249,7 @@ ID、组织、分类、英文标题、中文标题、概述、中文概述、封
 - `MAIL_*` 与 `GMP_SEEKER_ADMIN`
 
 日志：默认写入 `logs/` 目录，请确保目录可写。
+- 文件存储：`app/static/uploads/` 已在 `.gitignore`，无需提交（本地模式下载的文档也会落在此目录）。
 
 ## 使用 1Panel 部署（推荐给新手）
 
