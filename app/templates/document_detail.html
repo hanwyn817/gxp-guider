@@ -73,13 +73,13 @@
                     <div class="mt-8 space-y-4">
                         <div class="flex flex-wrap gap-3">
                             {% if doc.original_file_url %}
-                            <a href="{{ doc.original_file_url }}" class="inline-flex items-center px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition duration-300">
-                                <i class="fas fa-download mr-2"></i> 下载原版PDF
+                            <a href="{{ doc.original_file_url }}" target="_blank" rel="noopener" class="inline-flex items-center px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition duration-300">
+                                <i class="fas fa-download mr-2"></i> 下载原版PDF{% if file_sizes.original %}（{{ file_sizes.original }}）{% endif %}
                             </a>
                             {% endif %}
                             {% if doc.translation_file_url %}
-                            <a href="{{ doc.translation_file_url }}" class="inline-flex items-center px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition duration-300">
-                                <i class="fas fa-download mr-2"></i> 下载中文版PDF
+                            <a href="{{ doc.translation_file_url }}" target="_blank" rel="noopener" class="inline-flex items-center px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition duration-300">
+                                <i class="fas fa-download mr-2"></i> 下载中文版PDF{% if file_sizes.translation %}（{{ file_sizes.translation }}）{% endif %}
                             </a>
                             {% endif %}
                             {% if not doc.original_file_url and not doc.translation_file_url %}

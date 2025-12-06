@@ -6,6 +6,7 @@ from sqlalchemy import func, desc, and_, or_
 from sqlalchemy.orm import joinedload
 from datetime import datetime
 import os
+import requests
 
 try:
     from markdown import Markdown
@@ -191,10 +192,44 @@ def documents():
 @main.route('/documents/<int:id>')
 def document_detail(id):
     doc = Document.query.options(joinedload(Document.organization), joinedload(Document.category)).get_or_404(id)
-    return render_template('document_detail.html', doc=doc)
+    file_sizes = {
+        'original': _get_file_size_human(doc.original_file_url),
+        'translation': _get_file_size_human(doc.translation_file_url)
+    }
+    return render_template('document_detail.html', doc=doc, file_sizes=file_sizes)
 
 @main.route('/download-history')
 def download_history():
     # This route would need to be implemented based on how download history is tracked in the application
     # For now, we'll return a simple placeholder
     return render_template('download_history.html')
+
+
+# Helpers
+def _get_file_size_human(url: str | None) -> str | None:
+    """获取远程文件大小并格式化为可读字符串；失败时返回 None。"""
+    if not url:
+        return None
+    try:
+        resp = requests.head(url, allow_redirects=True, timeout=5)
+        size = resp.headers.get('Content-Length')
+        if not size:
+            return None
+        size_int = int(size)
+        if size_int < 0:
+            return None
+        return _format_size(size_int)
+    except Exception:
+        return None
+
+
+def _format_size(num_bytes: int) -> str:
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    size = float(num_bytes)
+    idx = 0
+    while size >= 1024 and idx < len(units) - 1:
+        size /= 1024
+        idx += 1
+    if size >= 10 or size.is_integer():
+        return f"{size:.0f}{units[idx]}"
+    return f"{size:.1f}{units[idx]}"
