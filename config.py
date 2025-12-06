@@ -14,8 +14,8 @@ class Config:
         ['true', 'on', '1']
     MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-    GMP_SEEKER_MAIL_SUBJECT_PREFIX = '[GMP药指汇]'
-    GMP_SEEKER_MAIL_SENDER = 'GMP药指汇 Admin <admin@gmpseeker.com>'
+    GMP_SEEKER_MAIL_SUBJECT_PREFIX = '[GxP Guider]'
+    GMP_SEEKER_MAIL_SENDER = 'GxP Guider Admin <admin@gmpseeker.com>'
     GMP_SEEKER_ADMIN = os.environ.get('GMP_SEEKER_ADMIN')
     # R2配置
     R2_BUCKET_NAME = os.environ.get('R2_BUCKET_NAME')

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-GMP药指汇数据库初始化脚本
+GxP Guider数据库初始化脚本
 用于初始化数据库、分类和导入文档数据
 """
 

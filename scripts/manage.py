@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-GMP药指汇管理脚本
+GxP Guider管理脚本
 用于管理用户、文档等
 """
 

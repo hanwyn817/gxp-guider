@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}GMP药指汇 - 首页{% endblock %}
+{% block title %}GxP Guider - 首页{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto">
     <div class="text-center py-12">
-        <h1 class="text-4xl font-bold text-gray-800 mb-4">欢迎来到GMP药指汇</h1>
-        <p class="text-xl text-gray-600 max-w-3xl mx-auto mb-6">专业的GMP指南管理平台，提供ISPE、PDA、WHO等组织的文档浏览、检索与免费下载服务。</p>
+        <h1 class="text-4xl font-bold text-gray-800 mb-4">欢迎来到GxP Guider</h1>
+        <p class="text-xl text-gray-600 max-w-3xl mx-auto mb-6">专业的GMP指南管理平台，提供ISPE、PDA、WHO等组织的文档检索与下载服务。</p>
         <!-- 首页搜索条 -->
         <form method="GET" action="{{ url_for('main.documents') }}" role="search" aria-label="站内文档搜索" class="max-w-3xl mx-auto">
             <div class="relative flex items-center rounded-full overflow-hidden shadow focus-within:ring-2 focus-within:ring-blue-300 bg-white">

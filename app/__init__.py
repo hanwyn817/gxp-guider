@@ -87,7 +87,7 @@ def create_app(config_name='default'):
     if config_name != 'testing':
         from .admin import MyAdminIndexView, init_admin, admin as admin_blueprint
         app.register_blueprint(admin_blueprint, url_prefix='/admin')
-        flask_admin = FlaskAdmin(name='GMP药指汇', template_mode='bootstrap4', index_view=MyAdminIndexView())
+        flask_admin = FlaskAdmin(name='GxP Guider', template_mode='bootstrap4', index_view=MyAdminIndexView())
         flask_admin.init_app(app)
         init_admin(flask_admin, app)
     

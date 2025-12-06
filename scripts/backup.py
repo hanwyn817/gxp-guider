@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-GMP药指汇数据库备份脚本
+GxP Guider数据库备份脚本
 用于备份SQLite数据库
 """
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-GMP药指汇日志配置
+GxP Guider日志配置
 用于配置应用的日志记录
 """
 
@@ -38,7 +38,7 @@ def setup_logging(app):
     app.logger.setLevel(logging.INFO)
     
     # 记录应用启动日志
-    app.logger.info('GMP药指汇启动')
+    app.logger.info('GxP Guider启动')
 
 def setup_crawler_logging():
     """设置爬虫日志"""

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="320" height="320" viewBox="0 0 320 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">GMP药指汇 应用图标</title>
+  <title id="title">GxP Guider 应用图标</title>
   <desc id="desc">蓝色圆角背景，中央是白色书本与医学十字，代表GMP文档与医药主题。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
