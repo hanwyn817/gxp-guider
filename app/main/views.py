@@ -15,23 +15,9 @@ except Exception:
 
 @main.route('/')
 def index():
-    # 定义文件可用性条件（非空且非空白）
-    non_empty_original = and_(
-        Document.original_file_url.isnot(None),
-        func.length(func.trim(Document.original_file_url)) > 0
-    )
-    non_empty_translation = and_(
-        Document.translation_file_url.isnot(None),
-        func.length(func.trim(Document.translation_file_url)) > 0
-    )
-    has_any_file = or_(non_empty_original, non_empty_translation)
-
     # 最近更新Top 4 (按出版日期排序) 不强制有文件
     recent_updated = Document.query.options(joinedload(Document.organization)).order_by(desc(Document.publish_date)).limit(4).all()
     total_docs_count = db.session.query(func.count(Document.id)).scalar()
-
-    # 最新中文 Top 4（translation 有文件）
-    latest_cn = Document.query.options(joinedload(Document.organization)).filter(non_empty_translation).order_by(desc(Document.publish_date)).limit(4).all()
 
     # 已移除首页“免费精选”模块，无需查询
     
@@ -50,7 +36,6 @@ def index():
     
     return render_template('index.html', 
                           recent_updated=recent_updated,
-                          latest_cn=latest_cn,
                           org_docs=org_docs,
                           org_counts=org_counts,
                           total_docs_count=total_docs_count)
