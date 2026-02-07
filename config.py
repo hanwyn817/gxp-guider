@@ -29,11 +29,6 @@ class DevelopmentConfig(Config):
     SQLALCHEMY_DATABASE_URI = os.environ.get('DEV_DATABASE_URL') or \
         'sqlite:///' + os.path.join(basedir, 'data-dev.sqlite')
 
-class TestingConfig(Config):
-    TESTING = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get('TEST_DATABASE_URL') or \
-        'sqlite://'
-
 class ProductionConfig(Config):
     # 默认生产库与启动脚本一致，落在 /app/data/data.sqlite
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
@@ -41,7 +36,6 @@ class ProductionConfig(Config):
 
 config = {
     'development': DevelopmentConfig,
-    'testing': TestingConfig,
     'production': ProductionConfig,
     'default': DevelopmentConfig
 }

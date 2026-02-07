@@ -66,17 +66,12 @@ GxP Guider是一个轻量级的GMP指南管理与分发平台，目标用户为�
 
 ## 环境配置
 
-项目支持三种环境配置：
+项目支持两种环境配置：
 
 ### 开发环境 (development)
 - 启用调试模式
 - 使用开发数据库 (data-dev.sqlite)
 - 适用于本地开发和测试
-
-### 测试环境 (testing)
-- 用于运行单元测试
-- 使用内存数据库
-- 启用测试模式
 
 ### 生产环境 (production)
 - 关闭调试模式
@@ -86,7 +81,6 @@ GxP Guider是一个轻量级的GMP指南管理与分发平台，目标用户为�
 可以通过设置 `FLASK_ENV` 环境变量来切换不同环境：
 ```
 export FLASK_ENV=development  # 开发环境
-export FLASK_ENV=testing      # 测试环境
 export FLASK_ENV=production   # 生产环境
 ```
 
@@ -244,7 +238,7 @@ ID、组织、分类、英文标题、中文标题、概述、中文概述、封
 
 项目配置在 `config.py` 文件中，可以通过环境变量覆盖默认配置。
 常用条目：
-- `DEV_DATABASE_URL`、`TEST_DATABASE_URL`、`DATABASE_URL`
+- `DEV_DATABASE_URL`、`DATABASE_URL`
 - `R2_*` 与 `CDN_URL`（文件存储/访问）
 - `MAIL_*` 与 `GMP_SEEKER_ADMIN`
 
@@ -353,18 +347,6 @@ logging_config.py# 日志配置
 run.py           # Flask 入口（使用 FLASK_ENV 切换配置）
 Dockerfile, docker-compose.yml
 ```
-
-## 测试
-
-项目暂未提交正式测试用例，推荐使用 pytest：
-
-```
-pip install pytest
-export FLASK_ENV=testing
-pytest -q
-```
-
-测试环境使用内存 SQLite（见 `config.py`）。
 
 ## 部署
 

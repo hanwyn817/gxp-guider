@@ -16,7 +16,7 @@ csrf = CSRFProtect()
 
 def create_app(config_name='default'):
     app = Flask(__name__)
-    app.config.from_object(config[config_name])
+    app.config.from_object(config.get(config_name, config['default']))
     
     # 初始化扩展
     db.init_app(app)
@@ -83,12 +83,11 @@ def create_app(config_name='default'):
     from .api import api as api_blueprint
     app.register_blueprint(api_blueprint, url_prefix='/api')
     
-    # 初始化Flask-Admin（仅在测试配置下跳过）
-    if config_name != 'testing':
-        from .admin import MyAdminIndexView, init_admin, admin as admin_blueprint
-        app.register_blueprint(admin_blueprint, url_prefix='/admin')
-        flask_admin = FlaskAdmin(name='GxP Guider', template_mode='bootstrap4', index_view=MyAdminIndexView())
-        flask_admin.init_app(app)
-        init_admin(flask_admin, app)
+    # 初始化 Flask-Admin
+    from .admin import MyAdminIndexView, init_admin, admin as admin_blueprint
+    app.register_blueprint(admin_blueprint, url_prefix='/admin')
+    flask_admin = FlaskAdmin(name='GxP Guider', template_mode='bootstrap4', index_view=MyAdminIndexView())
+    flask_admin.init_app(app)
+    init_admin(flask_admin, app)
     
     return app
